@@ -6,16 +6,22 @@ struct Player {
     dead: bool,
 }
 
+#[derive(Component)]
+struct GameOverText;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
         .add_system(simulate_player_gravity)
+        .add_system(game_over_ui_text_system)
         .run();
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
+    commands.spawn_bundle(UiCameraBundle::default());
+
     commands
         .spawn_bundle(SpriteBundle {
             texture: asset_server.load("player.png"),
@@ -25,6 +31,34 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             y_velocity: 0.0,
             dead: false,
         });
+
+    commands
+        .spawn_bundle(TextBundle {
+            text: Text::with_section(
+                "Game Over!".to_string(),
+                TextStyle {
+                    font: asset_server.load("FiraSans-Bold.ttf"),
+                    font_size: 60.0,
+                    color: Color::RED,
+                },
+                TextAlignment {
+                    vertical: VerticalAlign::Center,
+                    horizontal: HorizontalAlign::Center,
+                },
+            ),
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    top: Val::Percent(50.0),
+                    left: Val::Percent(50.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            visibility: Visibility { is_visible: false },
+            ..Default::default()
+        })
+        .insert(GameOverText);
 }
 
 fn simulate_player_gravity(
@@ -52,4 +86,15 @@ fn simulate_player_gravity(
             player.dead = true;
         }
     }
+}
+
+fn game_over_ui_text_system(
+    mut query: Query<(&mut Visibility, &GameOverText)>,
+    player_query: Query<&Player>,
+) {
+    let player = player_query.single();
+
+    let (mut visibility, _) = query.single_mut();
+
+    visibility.is_visible = player.dead;
 }
