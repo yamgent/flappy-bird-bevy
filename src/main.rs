@@ -23,9 +23,18 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(Player { y_velocity: 0.0 });
 }
 
-fn simulate_player_gravity(time: Res<Time>, mut query: Query<(&mut Player, &mut Transform)>) {
+fn simulate_player_gravity(
+    time: Res<Time>,
+    keyboard_input: Res<Input<KeyCode>>,
+    mut query: Query<(&mut Player, &mut Transform)>,
+) {
     let (mut player, mut transform) = query.single_mut();
 
-    player.y_velocity -= time.delta().as_secs_f32() * 9.81;
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        player.y_velocity = 5.0;
+    } else {
+        player.y_velocity -= time.delta().as_secs_f32() * 9.81;
+    }
+
     transform.translation.y += player.y_velocity;
 }
