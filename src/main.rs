@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 const PILLAR_GAP: f32 = 150.0;
+const PILLAR_HEIGHT: f32 = 1024.0;
 const PLAYER_VISIBLE_HEIGHT: f32 = 46.0;
 
 #[derive(Component)]
@@ -108,7 +109,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         gparent.spawn_bundle(SpriteBundle {
                             texture: asset_server.load("pillar_top.png"),
                             transform: Transform {
-                                translation: Vec3::new(0.0, 256.0 + (PILLAR_GAP / 2.0), 0.0),
+                                translation: Vec3::new(
+                                    0.0,
+                                    (PILLAR_HEIGHT / 2.0) + (PILLAR_GAP / 2.0),
+                                    0.0,
+                                ),
                                 ..Default::default()
                             },
                             ..Default::default()
@@ -117,7 +122,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         gparent.spawn_bundle(SpriteBundle {
                             texture: asset_server.load("pillar_bottom.png"),
                             transform: Transform {
-                                translation: Vec3::new(0.0, -256.0 - (PILLAR_GAP / 2.0), 0.0),
+                                translation: Vec3::new(
+                                    0.0,
+                                    -(PILLAR_HEIGHT / 2.0) - (PILLAR_GAP / 2.0),
+                                    0.0,
+                                ),
                                 ..Default::default()
                             },
                             ..Default::default()
