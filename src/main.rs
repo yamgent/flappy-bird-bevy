@@ -3,7 +3,13 @@ use bevy_kira_audio::{Audio, AudioPlugin, AudioSource};
 
 const PILLAR_GAP: f32 = 150.0;
 const PILLAR_HEIGHT: f32 = 1024.0;
+const PILLAR_WIDTH: f32 = 128.0;
 const PLAYER_VISIBLE_HEIGHT: f32 = 46.0;
+
+const NEXT_PILLAR_SPAWN_TIME: f32 = 3.0;
+
+const GRAVITY: f32 = 9.81;
+const LEAP_Y_VELOCITY: f32 = 5.0;
 
 #[derive(Component)]
 struct Player {
@@ -56,7 +62,10 @@ fn main() {
         .add_plugin(AudioPlugin)
         .add_startup_system(setup)
         .insert_resource(LoadingAssets(vec![]))
-        .insert_resource(PillarSpawnerTimer(Timer::from_seconds(3.0, true)))
+        .insert_resource(PillarSpawnerTimer(Timer::from_seconds(
+            NEXT_PILLAR_SPAWN_TIME,
+            true,
+        )))
         .insert_resource(Globals {
             game_state: GameState::Loading,
             score: 0,
@@ -83,6 +92,9 @@ fn setup(
     println!("Window size: {} {}", window.width(), window.height());
 
     let mut camera_bundle = OrthographicCameraBundle::new_2d();
+
+    // the default makes it such that negative z is clipped
+    // we need to use z: -1 for the background, so shift the camera a bit more forward
     camera_bundle.transform.translation.z = 500.0;
 
     commands.spawn_bundle(camera_bundle);
@@ -301,9 +313,9 @@ fn player_gravity_system(
 
     if matches!(globals.game_state, GameState::Playing) {
         if keyboard_input.just_pressed(KeyCode::Space) {
-            player.y_velocity = 5.0;
+            player.y_velocity = LEAP_Y_VELOCITY;
         } else {
-            player.y_velocity -= time.delta().as_secs_f32() * 9.81;
+            player.y_velocity -= time.delta().as_secs_f32() * GRAVITY;
         }
 
         transform.translation.y += player.y_velocity;
@@ -348,7 +360,9 @@ fn pillar_movement_system(
             if pillar.active {
                 transform.translation.x -= time.delta().as_secs_f32() * 150.0;
 
-                if transform.translation.x <= 64.0 && transform.translation.x >= -64.0 {
+                if transform.translation.x <= (PILLAR_WIDTH / 2.0)
+                    && transform.translation.x >= -(PILLAR_WIDTH / 2.0)
+                {
                     let top = PILLAR_GAP / 2.0 + transform.translation.y;
                     let bottom = -PILLAR_GAP / 2.0 + transform.translation.y;
                     let audio_collection = audio_collection_query.single();
@@ -358,12 +372,15 @@ fn pillar_movement_system(
                     {
                         globals.game_state = GameState::GameOver;
                         audio.play(audio_collection.dead.clone());
-                    } else if transform.translation.x < -50.0 && !pillar.player_crossed {
+                    // divide by 4.0 => to allow player to score when he reaches 75% across the pillar
+                    } else if transform.translation.x < -(PILLAR_WIDTH / 4.0)
+                        && !pillar.player_crossed
+                    {
                         pillar.player_crossed = true;
                         audio.play(audio_collection.crossed.clone());
                         globals.score += 1;
                     }
-                } else if transform.translation.x < (-window_width / 2.0) - 200.0 {
+                } else if transform.translation.x < (-window_width / 2.0) - PILLAR_WIDTH {
                     pillar.active = false;
                     pillar.player_crossed = false;
                 }
@@ -402,7 +419,7 @@ fn pillar_spawn_system(
 
                 pillar.active = true;
                 pillar.player_crossed = false;
-                transform.translation.x = (window_width / 2.0) + 64.0;
+                transform.translation.x = (window_width / 2.0) + (PILLAR_WIDTH / 2.0);
                 transform.translation.y = gap_y;
 
                 found = true;
