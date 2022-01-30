@@ -238,6 +238,7 @@ fn setup(
                         player_crossed: false,
                     })
                     .insert(Transform {
+                        translation: Vec3::new(window.width(), 0.0, 0.0),
                         ..Default::default()
                     })
                     .insert(GlobalTransform {
@@ -401,7 +402,7 @@ fn pillar_spawn_system(
 
                 pillar.active = true;
                 pillar.player_crossed = false;
-                transform.translation.x = window_width / 2.0;
+                transform.translation.x = (window_width / 2.0) + 64.0;
                 transform.translation.y = gap_y;
 
                 found = true;
