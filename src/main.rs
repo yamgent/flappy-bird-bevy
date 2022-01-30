@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_kira_audio::{Audio, AudioPlugin};
+use bevy_kira_audio::{Audio, AudioPlugin, AudioSource};
 
 const PILLAR_GAP: f32 = 150.0;
 const PILLAR_HEIGHT: f32 = 1024.0;
@@ -36,6 +36,12 @@ struct Globals {
 
 #[derive(Component)]
 struct ScoreText;
+
+#[derive(Component)]
+struct AudioCollection {
+    crossed: Handle<AudioSource>,
+    dead: Handle<AudioSource>,
+}
 
 fn main() {
     App::new()
@@ -215,6 +221,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
                     });
             });
         });
+
+    commands.spawn().insert(AudioCollection {
+        crossed: asset_server.load("crossed.wav"),
+        dead: asset_server.load("dead.wav"),
+    });
 }
 
 fn player_gravity_system(
@@ -224,7 +235,7 @@ fn player_gravity_system(
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Player, &mut Transform)>,
     audio: Res<Audio>,
-    asset_server: Res<AssetServer>,
+    audio_collection_query: Query<&AudioCollection>,
 ) {
     let (mut player, mut transform) = query.single_mut();
 
@@ -243,7 +254,8 @@ fn player_gravity_system(
 
         if transform.translation.y < min_y || transform.translation.y > max_y {
             globals.game_state = GameState::GameOver;
-            audio.play(asset_server.load("dead.wav"));
+            let audio_collection = audio_collection_query.single();
+            audio.play(audio_collection.dead.clone());
         }
     }
 }
@@ -264,7 +276,7 @@ fn pillar_movement_system(
     mut query: Query<(&mut Transform, &mut Pillar), Without<Player>>,
     player_query: Query<(&Player, &Transform)>,
     audio: Res<Audio>,
-    asset_server: Res<AssetServer>,
+    audio_collection_query: Query<&AudioCollection>,
 ) {
     let window = windows.get_primary().unwrap();
     let window_width = window.width() as f32;
@@ -279,15 +291,16 @@ fn pillar_movement_system(
                 if transform.translation.x <= 64.0 && transform.translation.x >= -64.0 {
                     let top = PILLAR_GAP / 2.0 + transform.translation.y;
                     let bottom = -PILLAR_GAP / 2.0 + transform.translation.y;
+                    let audio_collection = audio_collection_query.single();
 
                     if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
                         || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
                     {
                         globals.game_state = GameState::GameOver;
-                        audio.play(asset_server.load("dead.wav"));
+                        audio.play(audio_collection.dead.clone());
                     } else if transform.translation.x < -50.0 && !pillar.player_crossed {
                         pillar.player_crossed = true;
-                        audio.play(asset_server.load("crossed.wav"));
+                        audio.play(audio_collection.crossed.clone());
                         globals.score += 1;
                     }
                 } else if transform.translation.x < (-window_width / 2.0) - 200.0 {
