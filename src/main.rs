@@ -6,7 +6,6 @@ const PLAYER_VISIBLE_HEIGHT: f32 = 46.0;
 #[derive(Component)]
 struct Player {
     y_velocity: f32,
-    dead: bool,
 }
 
 #[derive(Component)]
@@ -22,11 +21,23 @@ struct PillarPool;
 
 struct PillarSpawnerTimer(Timer);
 
+enum GameState {
+    Playing,
+    GameOver,
+}
+
+struct Globals {
+    game_state: GameState,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
         .insert_resource(PillarSpawnerTimer(Timer::from_seconds(3.0, true)))
+        .insert_resource(Globals {
+            game_state: GameState::Playing,
+        })
         .add_system(player_gravity_system)
         .add_system(game_over_ui_text_system)
         .add_system(pillar_movement_system)
@@ -43,10 +54,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             texture: asset_server.load("player.png"),
             ..Default::default()
         })
-        .insert(Player {
-            y_velocity: 0.0,
-            dead: false,
-        });
+        .insert(Player { y_velocity: 0.0 });
 
     commands
         .spawn_bundle(TextBundle {
@@ -122,12 +130,13 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 fn player_gravity_system(
     windows: Res<Windows>,
     time: Res<Time>,
+    mut globals: ResMut<Globals>,
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Player, &mut Transform)>,
 ) {
     let (mut player, mut transform) = query.single_mut();
 
-    if !player.dead {
+    if matches!(globals.game_state, GameState::Playing) {
         if keyboard_input.just_pressed(KeyCode::Space) {
             player.y_velocity = 5.0;
         } else {
@@ -141,34 +150,33 @@ fn player_gravity_system(
         let (min_y, max_y) = (-window.height() as f32 / 2.0, window.height() as f32 / 2.0);
 
         if transform.translation.y < min_y || transform.translation.y > max_y {
-            player.dead = true;
+            globals.game_state = GameState::GameOver;
         }
     }
 }
 
 fn game_over_ui_text_system(
+    globals: Res<Globals>,
     mut query: Query<(&mut Visibility, &GameOverText)>,
-    player_query: Query<&Player>,
 ) {
-    let player = player_query.single();
-
     let (mut visibility, _) = query.single_mut();
 
-    visibility.is_visible = player.dead;
+    visibility.is_visible = matches!(globals.game_state, GameState::GameOver);
 }
 
 fn pillar_movement_system(
     windows: Res<Windows>,
     time: Res<Time>,
+    mut globals: ResMut<Globals>,
     mut query: Query<(&mut Transform, &mut Pillar), Without<Player>>,
-    mut player_query: Query<(&mut Player, &Transform)>,
+    player_query: Query<(&Player, &Transform)>,
 ) {
     let window = windows.get_primary().unwrap();
     let window_width = window.width() as f32;
 
-    let (mut player, player_transform) = player_query.single_mut();
+    let (_, player_transform) = player_query.single();
 
-    if !player.dead {
+    if matches!(globals.game_state, GameState::Playing) {
         query.iter_mut().for_each(|(mut transform, mut pillar)| {
             if pillar.active {
                 transform.translation.x -= time.delta().as_secs_f32() * 150.0;
@@ -180,7 +188,7 @@ fn pillar_movement_system(
                     if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
                         || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
                     {
-                        player.dead = true;
+                        globals.game_state = GameState::GameOver;
                     }
                 } else if transform.translation.x < (-window_width / 2.0) - 200.0 {
                     pillar.active = false;
@@ -198,11 +206,14 @@ fn pillar_movement_system(
 fn pillar_spawn_system(
     windows: Res<Windows>,
     time: Res<Time>,
+    globals: Res<Globals>,
     mut timer: ResMut<PillarSpawnerTimer>,
     query: Query<(&PillarPool, &Children)>,
     mut children_query: Query<(&mut Pillar, &mut Transform)>,
 ) {
-    if timer.0.tick(time.delta()).just_finished() {
+    if matches!(globals.game_state, GameState::Playing)
+        && timer.0.tick(time.delta()).just_finished()
+    {
         let window = windows.get_primary().unwrap();
         let window_width = window.width() as f32;
         let window_height = window.height() as f32;
