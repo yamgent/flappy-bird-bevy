@@ -246,7 +246,7 @@ fn pillar_spawn_system(
         for &child in children.iter() {
             let (mut pillar, mut transform) = children_query.get_mut(child).unwrap();
             if !pillar.active {
-                let gap_y = ((rand::random::<f32>() - 0.5) * 2.0) * ((window_height - 30.0) / 2.0);
+                let gap_y = ((rand::random::<f32>() - 0.5) * 2.0) * ((window_height - 100.0) / 2.0);
 
                 pillar.active = true;
                 transform.translation.x = window_width / 2.0;
