@@ -202,18 +202,22 @@ fn pillar_spawn_system(
     query: Query<(&PillarPool, &Children)>,
     mut children_query: Query<(&mut Pillar, &mut Transform)>,
 ) {
-    let window = windows.get_primary().unwrap();
-    let window_width = window.width() as f32;
-
     if timer.0.tick(time.delta()).just_finished() {
+        let window = windows.get_primary().unwrap();
+        let window_width = window.width() as f32;
+        let window_height = window.height() as f32;
+
         let (_, children) = query.single();
         let mut found = false;
 
         for &child in children.iter() {
             let (mut pillar, mut transform) = children_query.get_mut(child).unwrap();
             if !pillar.active {
+                let gap_y = ((rand::random::<f32>() - 0.5) * 2.0) * ((window_height - 30.0) / 2.0);
+
                 pillar.active = true;
                 transform.translation.x = window_width / 2.0;
+                transform.translation.y = gap_y;
 
                 found = true;
                 break;
