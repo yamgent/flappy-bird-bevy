@@ -25,6 +25,7 @@ struct PillarPool;
 struct PillarSpawnerTimer(Timer);
 
 enum GameState {
+    StartScreen,
     Playing,
     GameOver,
 }
@@ -43,6 +44,9 @@ struct AudioCollection {
     dead: Handle<AudioSource>,
 }
 
+#[derive(Component)]
+struct StartScreenText;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -50,7 +54,7 @@ fn main() {
         .add_startup_system(setup)
         .insert_resource(PillarSpawnerTimer(Timer::from_seconds(3.0, true)))
         .insert_resource(Globals {
-            game_state: GameState::Playing,
+            game_state: GameState::StartScreen,
             score: 0,
         })
         .add_system(player_gravity_system)
@@ -59,6 +63,7 @@ fn main() {
         .add_system(pillar_spawn_system)
         .add_system(restart_system)
         .add_system(main_ui_system)
+        .add_system(start_ui_system)
         .run();
 }
 
@@ -93,6 +98,35 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
     commands
         .spawn_bundle(TextBundle {
             text: Text {
+                sections: vec![TextSection {
+                    value: "Press <Space> to Start".to_string(),
+                    style: TextStyle {
+                        font: asset_server.load("FiraSans-Bold.ttf"),
+                        font_size: 60.0,
+                        color: Color::BLACK,
+                    },
+                }],
+                alignment: TextAlignment {
+                    vertical: VerticalAlign::Center,
+                    horizontal: HorizontalAlign::Center,
+                },
+            },
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    top: Val::Percent(50.0),
+                    left: Val::Percent(50.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(StartScreenText);
+
+    commands
+        .spawn_bundle(TextBundle {
+            text: Text {
                 sections: vec![
                     TextSection {
                         value: "Game Over!".to_string(),
@@ -107,7 +141,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
                         style: TextStyle {
                             font: asset_server.load("FiraSans-Bold.ttf"),
                             font_size: 40.0,
-                            color: Color::WHITE,
+                            color: Color::BLACK,
                         },
                     },
                 ],
@@ -386,4 +420,20 @@ fn main_ui_system(globals: Res<Globals>, mut query: Query<(&ScoreText, &mut Text
     let (_, mut text) = query.single_mut();
 
     text.sections[1].value = globals.score.to_string();
+}
+
+fn start_ui_system(
+    mut globals: ResMut<Globals>,
+    keyboard_input: Res<Input<KeyCode>>,
+    mut query: Query<(&StartScreenText, &mut Visibility)>,
+) {
+    if matches!(globals.game_state, GameState::StartScreen)
+        && keyboard_input.just_pressed(KeyCode::Space)
+    {
+        globals.game_state = GameState::Playing;
+
+        query.iter_mut().for_each(|(_, mut visibility)| {
+            visibility.is_visible = false;
+        });
+    }
 }
