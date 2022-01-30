@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_kira_audio::{Audio, AudioPlugin};
 
 const PILLAR_GAP: f32 = 150.0;
 const PILLAR_HEIGHT: f32 = 1024.0;
@@ -39,6 +40,7 @@ struct ScoreText;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugin(AudioPlugin)
         .add_startup_system(setup)
         .insert_resource(PillarSpawnerTimer(Timer::from_seconds(3.0, true)))
         .insert_resource(Globals {
@@ -204,6 +206,8 @@ fn player_gravity_system(
     mut globals: ResMut<Globals>,
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Player, &mut Transform)>,
+    audio: Res<Audio>,
+    asset_server: Res<AssetServer>,
 ) {
     let (mut player, mut transform) = query.single_mut();
 
@@ -222,6 +226,7 @@ fn player_gravity_system(
 
         if transform.translation.y < min_y || transform.translation.y > max_y {
             globals.game_state = GameState::GameOver;
+            audio.play(asset_server.load("dead.wav"));
         }
     }
 }
@@ -241,6 +246,8 @@ fn pillar_movement_system(
     mut globals: ResMut<Globals>,
     mut query: Query<(&mut Transform, &mut Pillar), Without<Player>>,
     player_query: Query<(&Player, &Transform)>,
+    audio: Res<Audio>,
+    asset_server: Res<AssetServer>,
 ) {
     let window = windows.get_primary().unwrap();
     let window_width = window.width() as f32;
@@ -260,8 +267,10 @@ fn pillar_movement_system(
                         || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
                     {
                         globals.game_state = GameState::GameOver;
+                        audio.play(asset_server.load("dead.wav"));
                     } else if transform.translation.x < -50.0 && !pillar.player_crossed {
                         pillar.player_crossed = true;
+                        audio.play(asset_server.load("crossed.wav"));
                         globals.score += 1;
                     }
                 } else if transform.translation.x < (-window_width / 2.0) - 200.0 {
