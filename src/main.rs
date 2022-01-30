@@ -15,6 +15,7 @@ struct GameOverText;
 #[derive(Component)]
 struct Pillar {
     active: bool,
+    player_crossed: bool,
 }
 
 #[derive(Component)]
@@ -29,7 +30,11 @@ enum GameState {
 
 struct Globals {
     game_state: GameState,
+    score: u32,
 }
+
+#[derive(Component)]
+struct ScoreText;
 
 fn main() {
     App::new()
@@ -38,12 +43,14 @@ fn main() {
         .insert_resource(PillarSpawnerTimer(Timer::from_seconds(3.0, true)))
         .insert_resource(Globals {
             game_state: GameState::Playing,
+            score: 0,
         })
         .add_system(player_gravity_system)
         .add_system(game_over_ui_text_system)
         .add_system(pillar_movement_system)
         .add_system(pillar_spawn_system)
         .add_system(restart_system)
+        .add_system(main_ui_system)
         .run();
 }
 
@@ -99,6 +106,45 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(GameOverText);
 
     commands
+        .spawn_bundle(TextBundle {
+            text: Text {
+                sections: vec![
+                    TextSection {
+                        value: "Score: ".to_string(),
+                        style: TextStyle {
+                            font: asset_server.load("FiraSans-Bold.ttf"),
+                            font_size: 30.0,
+                            color: Color::WHITE,
+                        },
+                    },
+                    TextSection {
+                        value: "0".to_string(),
+                        style: TextStyle {
+                            font: asset_server.load("FiraSans-Bold.ttf"),
+                            font_size: 30.0,
+                            color: Color::WHITE,
+                        },
+                    },
+                ],
+                alignment: TextAlignment {
+                    vertical: VerticalAlign::Center,
+                    horizontal: HorizontalAlign::Center,
+                },
+            },
+            style: Style {
+                position_type: PositionType::Absolute,
+                position: Rect {
+                    top: Val::Px(15.0),
+                    left: Val::Px(15.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(ScoreText);
+
+    commands
         .spawn()
         .insert(PillarPool)
         .insert(Transform {
@@ -111,7 +157,10 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             (0..10).for_each(|_| {
                 parent
                     .spawn()
-                    .insert(Pillar { active: false })
+                    .insert(Pillar {
+                        active: false,
+                        player_crossed: false,
+                    })
                     .insert(Transform {
                         ..Default::default()
                     })
@@ -211,9 +260,13 @@ fn pillar_movement_system(
                         || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
                     {
                         globals.game_state = GameState::GameOver;
+                    } else if transform.translation.x < -50.0 && !pillar.player_crossed {
+                        pillar.player_crossed = true;
+                        globals.score += 1;
                     }
                 } else if transform.translation.x < (-window_width / 2.0) - 200.0 {
                     pillar.active = false;
+                    pillar.player_crossed = false;
                 }
             }
 
@@ -249,6 +302,7 @@ fn pillar_spawn_system(
                 let gap_y = ((rand::random::<f32>() - 0.5) * 2.0) * ((window_height - 100.0) / 2.0);
 
                 pillar.active = true;
+                pillar.player_crossed = false;
                 transform.translation.x = window_width / 2.0;
                 transform.translation.y = gap_y;
 
@@ -273,6 +327,7 @@ fn restart_system(
     if matches!(globals.game_state, GameState::GameOver) && keyboard_input.just_pressed(KeyCode::R)
     {
         globals.game_state = GameState::Playing;
+        globals.score = 0;
 
         let (mut player, mut player_transform) = player_query.single_mut();
 
@@ -281,8 +336,15 @@ fn restart_system(
 
         pillar_query.iter_mut().for_each(|mut pillar| {
             pillar.active = false;
+            pillar.player_crossed = false;
         });
 
         timer.0.reset();
     }
+}
+
+fn main_ui_system(globals: Res<Globals>, mut query: Query<(&ScoreText, &mut Text)>) {
+    let (_, mut text) = query.single_mut();
+
+    text.sections[1].value = globals.score.to_string();
 }
