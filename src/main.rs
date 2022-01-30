@@ -43,6 +43,7 @@ fn main() {
         .add_system(game_over_ui_text_system)
         .add_system(pillar_movement_system)
         .add_system(pillar_spawn_system)
+        .add_system(restart_system)
         .run();
 }
 
@@ -59,18 +60,30 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     commands
         .spawn_bundle(TextBundle {
-            text: Text::with_section(
-                "Game Over!".to_string(),
-                TextStyle {
-                    font: asset_server.load("FiraSans-Bold.ttf"),
-                    font_size: 60.0,
-                    color: Color::RED,
-                },
-                TextAlignment {
+            text: Text {
+                sections: vec![
+                    TextSection {
+                        value: "Game Over!".to_string(),
+                        style: TextStyle {
+                            font: asset_server.load("FiraSans-Bold.ttf"),
+                            font_size: 60.0,
+                            color: Color::RED,
+                        },
+                    },
+                    TextSection {
+                        value: "  Press <R> to restart".to_string(),
+                        style: TextStyle {
+                            font: asset_server.load("FiraSans-Bold.ttf"),
+                            font_size: 40.0,
+                            color: Color::WHITE,
+                        },
+                    },
+                ],
+                alignment: TextAlignment {
                     vertical: VerticalAlign::Center,
                     horizontal: HorizontalAlign::Center,
                 },
-            ),
+            },
             style: Style {
                 position_type: PositionType::Absolute,
                 position: Rect {
@@ -247,5 +260,29 @@ fn pillar_spawn_system(
         if !found {
             eprintln!("Exhausted pillars in pool");
         }
+    }
+}
+
+fn restart_system(
+    mut globals: ResMut<Globals>,
+    keyboard_input: Res<Input<KeyCode>>,
+    mut player_query: Query<(&mut Player, &mut Transform)>,
+    mut pillar_query: Query<&mut Pillar>,
+    mut timer: ResMut<PillarSpawnerTimer>,
+) {
+    if matches!(globals.game_state, GameState::GameOver) && keyboard_input.just_pressed(KeyCode::R)
+    {
+        globals.game_state = GameState::Playing;
+
+        let (mut player, mut player_transform) = player_query.single_mut();
+
+        player_transform.translation = Vec3::ZERO;
+        player.y_velocity = 0.0;
+
+        pillar_query.iter_mut().for_each(|mut pillar| {
+            pillar.active = false;
+        });
+
+        timer.0.reset();
     }
 }
