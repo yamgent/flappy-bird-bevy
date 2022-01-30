@@ -1,5 +1,8 @@
 use bevy::prelude::*;
 
+const PILLAR_GAP: f32 = 140.0;
+const PLAYER_VISIBLE_HEIGHT: f32 = 46.0;
+
 #[derive(Component)]
 struct Player {
     y_velocity: f32,
@@ -9,12 +12,25 @@ struct Player {
 #[derive(Component)]
 struct GameOverText;
 
+#[derive(Component)]
+struct Pillar {
+    active: bool,
+}
+
+#[derive(Component)]
+struct PillarPool;
+
+struct PillarSpawnerTimer(Timer);
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
+        .insert_resource(PillarSpawnerTimer(Timer::from_seconds(2.0, true)))
         .add_system(player_gravity_system)
         .add_system(game_over_ui_text_system)
+        .add_system(pillar_movement_system)
+        .add_system(pillar_spawn_system)
         .run();
 }
 
@@ -59,6 +75,48 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..Default::default()
         })
         .insert(GameOverText);
+
+    commands
+        .spawn()
+        .insert(PillarPool)
+        .insert(Transform {
+            ..Default::default()
+        })
+        .insert(GlobalTransform {
+            ..Default::default()
+        })
+        .with_children(|parent| {
+            (0..10).for_each(|_| {
+                parent
+                    .spawn()
+                    .insert(Pillar { active: false })
+                    .insert(Transform {
+                        ..Default::default()
+                    })
+                    .insert(GlobalTransform {
+                        ..Default::default()
+                    })
+                    .with_children(|gparent| {
+                        gparent.spawn_bundle(SpriteBundle {
+                            texture: asset_server.load("pillar_top.png"),
+                            transform: Transform {
+                                translation: Vec3::new(0.0, 256.0 + (PILLAR_GAP / 2.0), 0.0),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        });
+
+                        gparent.spawn_bundle(SpriteBundle {
+                            texture: asset_server.load("pillar_bottom.png"),
+                            transform: Transform {
+                                translation: Vec3::new(0.0, -256.0 - (PILLAR_GAP / 2.0), 0.0),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        });
+                    });
+            });
+        });
 }
 
 fn player_gravity_system(
@@ -97,4 +155,73 @@ fn game_over_ui_text_system(
     let (mut visibility, _) = query.single_mut();
 
     visibility.is_visible = player.dead;
+}
+
+fn pillar_movement_system(
+    windows: Res<Windows>,
+    time: Res<Time>,
+    mut query: Query<(&mut Transform, &mut Pillar), Without<Player>>,
+    mut player_query: Query<(&mut Player, &Transform)>,
+) {
+    let window = windows.get_primary().unwrap();
+    let window_width = window.width() as f32;
+
+    let (mut player, player_transform) = player_query.single_mut();
+
+    if !player.dead {
+        query.iter_mut().for_each(|(mut transform, mut pillar)| {
+            if pillar.active {
+                transform.translation.x -= time.delta().as_secs_f32() * 150.0;
+
+                if transform.translation.x <= 64.0 && transform.translation.x >= -64.0 {
+                    let top = PILLAR_GAP / 2.0 + transform.translation.y;
+                    let bottom = -PILLAR_GAP / 2.0 + transform.translation.y;
+
+                    if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
+                        || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
+                    {
+                        player.dead = true;
+                    }
+                } else if transform.translation.x < (-window_width / 2.0) - 200.0 {
+                    pillar.active = false;
+                }
+            }
+
+            if !pillar.active {
+                // move it out of the viewport
+                transform.translation.x = window_width;
+            }
+        });
+    }
+}
+
+fn pillar_spawn_system(
+    windows: Res<Windows>,
+    time: Res<Time>,
+    mut timer: ResMut<PillarSpawnerTimer>,
+    query: Query<(&PillarPool, &Children)>,
+    mut children_query: Query<(&mut Pillar, &mut Transform)>,
+) {
+    let window = windows.get_primary().unwrap();
+    let window_width = window.width() as f32;
+
+    if timer.0.tick(time.delta()).just_finished() {
+        let (_, children) = query.single();
+        let mut found = false;
+
+        for &child in children.iter() {
+            let (mut pillar, mut transform) = children_query.get_mut(child).unwrap();
+            if !pillar.active {
+                pillar.active = true;
+                transform.translation.x = window_width / 2.0;
+
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            eprintln!("Exhausted pillars in pool");
+        }
+    }
 }
