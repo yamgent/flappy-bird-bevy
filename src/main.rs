@@ -56,9 +56,26 @@ fn main() {
         .run();
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn_bundle(OrthographicCameraBundle::new_2d());
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: ResMut<Windows>) {
+    let window = windows.get_primary_mut().unwrap();
+    window.set_resizable(false);
+
+    println!("Window size: {} {}", window.width(), window.height());
+
+    let mut camera_bundle = OrthographicCameraBundle::new_2d();
+    camera_bundle.transform.translation.z = 500.0;
+
+    commands.spawn_bundle(camera_bundle);
     commands.spawn_bundle(UiCameraBundle::default());
+
+    commands.spawn_bundle(SpriteBundle {
+        texture: asset_server.load("background.png"),
+        transform: Transform {
+            translation: Vec3::new(0.0, 0.0, -1.0),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
 
     commands
         .spawn_bundle(SpriteBundle {
@@ -116,7 +133,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         style: TextStyle {
                             font: asset_server.load("FiraSans-Bold.ttf"),
                             font_size: 30.0,
-                            color: Color::WHITE,
+                            color: Color::BLACK,
                         },
                     },
                     TextSection {
@@ -124,7 +141,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         style: TextStyle {
                             font: asset_server.load("FiraSans-Bold.ttf"),
                             font_size: 30.0,
-                            color: Color::WHITE,
+                            color: Color::BLACK,
                         },
                     },
                 ],
