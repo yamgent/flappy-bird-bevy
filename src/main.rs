@@ -13,7 +13,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
-        .add_system(simulate_player_gravity)
+        .add_system(player_gravity_system)
         .add_system(game_over_ui_text_system)
         .run();
 }
@@ -61,7 +61,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(GameOverText);
 }
 
-fn simulate_player_gravity(
+fn player_gravity_system(
     windows: Res<Windows>,
     time: Res<Time>,
     keyboard_input: Res<Input<KeyCode>>,
