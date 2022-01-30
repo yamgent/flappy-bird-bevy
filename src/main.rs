@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-const PILLAR_GAP: f32 = 140.0;
+const PILLAR_GAP: f32 = 150.0;
 const PLAYER_VISIBLE_HEIGHT: f32 = 46.0;
 
 #[derive(Component)]
@@ -26,7 +26,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
-        .insert_resource(PillarSpawnerTimer(Timer::from_seconds(2.0, true)))
+        .insert_resource(PillarSpawnerTimer(Timer::from_seconds(3.0, true)))
         .add_system(player_gravity_system)
         .add_system(game_over_ui_text_system)
         .add_system(pillar_movement_system)
