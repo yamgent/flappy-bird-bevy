@@ -25,6 +25,7 @@ struct PillarPool;
 struct PillarSpawnerTimer(Timer);
 
 enum GameState {
+    Loading,
     StartScreen,
     Playing,
     GameOver,
@@ -47,14 +48,17 @@ struct AudioCollection {
 #[derive(Component)]
 struct StartScreenText;
 
+struct LoadingAssets(Vec<HandleUntyped>);
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(AudioPlugin)
         .add_startup_system(setup)
+        .insert_resource(LoadingAssets(vec![]))
         .insert_resource(PillarSpawnerTimer(Timer::from_seconds(3.0, true)))
         .insert_resource(Globals {
-            game_state: GameState::StartScreen,
+            game_state: GameState::Loading,
             score: 0,
         })
         .add_system(player_gravity_system)
@@ -63,11 +67,16 @@ fn main() {
         .add_system(pillar_spawn_system)
         .add_system(restart_system)
         .add_system(main_ui_system)
-        .add_system(start_ui_system)
+        .add_system(pregame_ui_system)
         .run();
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: ResMut<Windows>) {
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut windows: ResMut<Windows>,
+    mut loading: ResMut<LoadingAssets>,
+) {
     let window = windows.get_primary_mut().unwrap();
     window.set_resizable(false);
 
@@ -79,8 +88,16 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
     commands.spawn_bundle(camera_bundle);
     commands.spawn_bundle(UiCameraBundle::default());
 
+    let background = asset_server.load("background.png");
+    let player = asset_server.load("player.png");
+    let font = asset_server.load("FiraSans-Bold.ttf");
+    let pillar_top = asset_server.load("pillar_top.png");
+    let pillar_bottom = asset_server.load("pillar_bottom.png");
+    let crossed = asset_server.load("crossed.wav");
+    let dead = asset_server.load("dead.wav");
+
     commands.spawn_bundle(SpriteBundle {
-        texture: asset_server.load("background.png"),
+        texture: background.clone(),
         transform: Transform {
             translation: Vec3::new(0.0, 0.0, -1.0),
             ..Default::default()
@@ -90,7 +107,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
 
     commands
         .spawn_bundle(SpriteBundle {
-            texture: asset_server.load("player.png"),
+            texture: player.clone(),
             ..Default::default()
         })
         .insert(Player { y_velocity: 0.0 });
@@ -99,9 +116,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
         .spawn_bundle(TextBundle {
             text: Text {
                 sections: vec![TextSection {
-                    value: "Press <Space> to Start".to_string(),
+                    value: "Loading...".to_string(),
                     style: TextStyle {
-                        font: asset_server.load("FiraSans-Bold.ttf"),
+                        font: font.clone(),
                         font_size: 60.0,
                         color: Color::BLACK,
                     },
@@ -131,7 +148,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
                     TextSection {
                         value: "Game Over!".to_string(),
                         style: TextStyle {
-                            font: asset_server.load("FiraSans-Bold.ttf"),
+                            font: font.clone(),
                             font_size: 60.0,
                             color: Color::RED,
                         },
@@ -139,7 +156,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
                     TextSection {
                         value: "  Press <R> to restart".to_string(),
                         style: TextStyle {
-                            font: asset_server.load("FiraSans-Bold.ttf"),
+                            font: font.clone(),
                             font_size: 40.0,
                             color: Color::BLACK,
                         },
@@ -171,7 +188,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
                     TextSection {
                         value: "Score: ".to_string(),
                         style: TextStyle {
-                            font: asset_server.load("FiraSans-Bold.ttf"),
+                            font: font.clone(),
                             font_size: 30.0,
                             color: Color::BLACK,
                         },
@@ -179,7 +196,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
                     TextSection {
                         value: "0".to_string(),
                         style: TextStyle {
-                            font: asset_server.load("FiraSans-Bold.ttf"),
+                            font: font.clone(),
                             font_size: 30.0,
                             color: Color::BLACK,
                         },
@@ -228,7 +245,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
                     })
                     .with_children(|gparent| {
                         gparent.spawn_bundle(SpriteBundle {
-                            texture: asset_server.load("pillar_top.png"),
+                            texture: pillar_top.clone(),
                             transform: Transform {
                                 translation: Vec3::new(
                                     0.0,
@@ -241,7 +258,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
                         });
 
                         gparent.spawn_bundle(SpriteBundle {
-                            texture: asset_server.load("pillar_bottom.png"),
+                            texture: pillar_bottom.clone(),
                             transform: Transform {
                                 translation: Vec3::new(
                                     0.0,
@@ -257,9 +274,17 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut windows: Re
         });
 
     commands.spawn().insert(AudioCollection {
-        crossed: asset_server.load("crossed.wav"),
-        dead: asset_server.load("dead.wav"),
+        crossed: crossed.clone(),
+        dead: dead.clone(),
     });
+
+    loading.0.push(background.clone_untyped());
+    loading.0.push(player.clone_untyped());
+    loading.0.push(font.clone_untyped());
+    loading.0.push(pillar_top.clone_untyped());
+    loading.0.push(pillar_bottom.clone_untyped());
+    loading.0.push(crossed.clone_untyped());
+    loading.0.push(dead.clone_untyped());
 }
 
 fn player_gravity_system(
@@ -422,18 +447,45 @@ fn main_ui_system(globals: Res<Globals>, mut query: Query<(&ScoreText, &mut Text
     text.sections[1].value = globals.score.to_string();
 }
 
-fn start_ui_system(
+fn pregame_ui_system(
     mut globals: ResMut<Globals>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<(&StartScreenText, &mut Visibility)>,
+    mut query: Query<(&StartScreenText, &mut Text, &mut Visibility)>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    loading: Option<Res<LoadingAssets>>,
 ) {
-    if matches!(globals.game_state, GameState::StartScreen)
-        && keyboard_input.just_pressed(KeyCode::Space)
-    {
-        globals.game_state = GameState::Playing;
+    match globals.game_state {
+        GameState::Loading => {
+            use bevy::asset::LoadState;
 
-        query.iter_mut().for_each(|(_, mut visibility)| {
-            visibility.is_visible = false;
-        });
+            match asset_server.get_group_load_state(loading.unwrap().0.iter().map(|h| h.id)) {
+                LoadState::Failed => {
+                    query.iter_mut().for_each(|(_, mut text, _)| {
+                        text.sections[0].value = "Loading failed...".to_string();
+                    });
+                }
+                LoadState::Loaded => {
+                    globals.game_state = GameState::StartScreen;
+
+                    query.iter_mut().for_each(|(_, mut text, _)| {
+                        text.sections[0].value = "Press <Space> to Start".to_string();
+                    });
+
+                    commands.remove_resource::<LoadingAssets>();
+                }
+                _ => {}
+            }
+        }
+        GameState::StartScreen => {
+            if keyboard_input.just_pressed(KeyCode::Space) {
+                globals.game_state = GameState::Playing;
+
+                query.iter_mut().for_each(|(_, _, mut visibility)| {
+                    visibility.is_visible = false;
+                });
+            }
+        }
+        _ => {}
     }
 }
