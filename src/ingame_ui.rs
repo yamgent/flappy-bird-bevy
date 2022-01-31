@@ -32,7 +32,7 @@ fn setup_ingame_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
                     TextSection {
                         value: "0".to_string(),
                         style: TextStyle {
-                            font: font.clone(),
+                            font,
                             font_size: 30.0,
                             color: Color::BLACK,
                         },

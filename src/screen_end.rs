@@ -33,7 +33,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     TextSection {
                         value: "  Press <R> to restart".to_string(),
                         style: TextStyle {
-                            font: font.clone(),
+                            font,
                             font_size: 40.0,
                             color: Color::BLACK,
                         },
