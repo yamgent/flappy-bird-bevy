@@ -6,19 +6,19 @@ mod mover;
 mod pillars;
 mod player;
 mod score;
+mod screen_end;
 mod screen_start;
 
 use audio::GameAudioPlugin;
 use bevy::prelude::*;
-use game_state::{
-    GameState, GameStatePlugin, GameStateType, OnGameStateChangedEvent, StartNewGameEvent,
-};
+use game_state::GameStatePlugin;
 use ingame_ui::IngameUiPlugin;
 use loading::LoadingManagerPlugin;
 use mover::MoverPlugin;
 use pillars::PillarsPlugin;
 use player::PlayerPlugin;
 use score::ScorePlugin;
+use screen_end::ScreenEndPlugin;
 use screen_start::ScreenStartPlugin;
 
 // TODO: Remove ALL these if possible
@@ -39,18 +39,8 @@ fn main() {
         .add_plugin(MoverPlugin)
         .add_plugin(PillarsPlugin)
         .add_plugin(ScreenStartPlugin)
+        .add_plugin(ScreenEndPlugin)
         .add_startup_system(setup)
-        .add_system_set(
-            SystemSet::new()
-                .label("logic")
-                .before("events")
-                .with_system(restart_system),
-        )
-        .add_system_set(
-            SystemSet::new()
-                .label("events")
-                .with_system(game_over_ui_update_system),
-        )
         .run();
 }
 
@@ -75,7 +65,6 @@ fn setup(
     commands.spawn_bundle(UiCameraBundle::default());
 
     let background = asset_server.load("background.png");
-    let font = asset_server.load("FiraSans-Bold.ttf");
 
     commands.spawn_bundle(SpriteBundle {
         texture: background.clone(),
@@ -86,65 +75,5 @@ fn setup(
         ..Default::default()
     });
 
-    commands
-        .spawn_bundle(TextBundle {
-            text: Text {
-                sections: vec![
-                    TextSection {
-                        value: "Game Over!".to_string(),
-                        style: TextStyle {
-                            font: font.clone(),
-                            font_size: 60.0,
-                            color: Color::RED,
-                        },
-                    },
-                    TextSection {
-                        value: "  Press <R> to restart".to_string(),
-                        style: TextStyle {
-                            font: font.clone(),
-                            font_size: 40.0,
-                            color: Color::BLACK,
-                        },
-                    },
-                ],
-                alignment: TextAlignment {
-                    vertical: VerticalAlign::Center,
-                    horizontal: HorizontalAlign::Center,
-                },
-            },
-            style: Style {
-                position_type: PositionType::Absolute,
-                position: Rect {
-                    top: Val::Percent(50.0),
-                    left: Val::Percent(50.0),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            visibility: Visibility { is_visible: false },
-            ..Default::default()
-        })
-        .insert(GameOverText);
-
     loading.0.push(background.clone_untyped());
-}
-
-fn restart_system(
-    game_status: Res<GameState>,
-    keyboard_input: Res<Input<KeyCode>>,
-    mut start_new_events: EventWriter<StartNewGameEvent>,
-) {
-    if game_state::is_game_over(&game_status) && keyboard_input.just_pressed(KeyCode::R) {
-        start_new_events.send(StartNewGameEvent);
-    }
-}
-
-fn game_over_ui_update_system(
-    mut game_status_changed: EventReader<OnGameStateChangedEvent>,
-    mut game_over_query: Query<&mut Visibility, With<GameOverText>>,
-) {
-    game_status_changed.iter().for_each(|event| {
-        let mut game_over_visibility = game_over_query.single_mut();
-        game_over_visibility.is_visible = matches!(event.0, GameStateType::GameOver);
-    });
 }
