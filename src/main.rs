@@ -65,8 +65,6 @@ struct StartScreenText;
 
 struct LoadingAssets(Vec<HandleUntyped>);
 
-struct ChangeGameStateEvent(GameState);
-
 enum PlayerEvent {
     CrossedPillar,
     Killed,
@@ -74,6 +72,7 @@ enum PlayerEvent {
 
 enum GlobalsEvent {
     ScoreUpdated(u32),
+    GameStateChanged(GameState),
 }
 
 fn main() {
@@ -91,7 +90,6 @@ fn main() {
             score: 0,
         })
         .insert_resource(PillarPool(vec![]))
-        .add_event::<ChangeGameStateEvent>()
         .add_event::<PlayerEvent>()
         .add_event::<GlobalsEvent>()
         .add_system_set(
@@ -120,7 +118,8 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .label("events")
-                .with_system(game_state_event_system)
+                .with_system(game_over_ui_update_system)
+                .with_system(game_over_system)
                 .with_system(player_event_audio_system)
                 .with_system(scoring_system)
                 .with_system(score_ui_update_system)
@@ -413,7 +412,6 @@ fn player_bounds_check_system(
     windows: Res<Windows>,
     globals: Res<Globals>,
     mut query: Query<&Transform, With<Player>>,
-    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
     mut player_event: EventWriter<PlayerEvent>,
 ) {
     let transform = query.single_mut();
@@ -424,7 +422,6 @@ fn player_bounds_check_system(
         let (min_y, max_y) = (-window.height() as f32 / 2.0, window.height() as f32 / 2.0);
 
         if transform.translation.y < min_y || transform.translation.y > max_y {
-            change_game_state_event.send(ChangeGameStateEvent(GameState::GameOver));
             player_event.send(PlayerEvent::Killed);
         }
     }
@@ -434,7 +431,6 @@ fn player_pillar_check_system(
     globals: Res<Globals>,
     mut query: Query<(&Transform, &mut Pillar, &Mover), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
-    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
     mut player_event: EventWriter<PlayerEvent>,
 ) {
     let player_transform = player_query.single();
@@ -451,7 +447,6 @@ fn player_pillar_check_system(
                 if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
                     || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
                 {
-                    change_game_state_event.send(ChangeGameStateEvent(GameState::GameOver));
                     player_event.send(PlayerEvent::Killed);
                 // divide by 4.0 => to allow player to score when he reaches 75% across the pillar
                 } else if transform.translation.x < -(PILLAR_WIDTH / 4.0) && !pillar.player_crossed
@@ -509,14 +504,15 @@ fn restart_system(
     mut player_query: Query<(&mut Mover, &mut Transform), With<Player>>,
     mut pillar_query: Query<(&mut Mover, &mut Pillar, &mut Transform), Without<Player>>,
     mut timer: ResMut<PillarSpawnerTimer>,
-    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
+    mut global_events: EventWriter<GlobalsEvent>,
 ) {
     if matches!(globals.game_state, GameState::GameOver) && keyboard_input.just_pressed(KeyCode::R)
     {
         let window = windows.get_primary().unwrap();
         let window_width = window.width();
 
-        change_game_state_event.send(ChangeGameStateEvent(GameState::Playing));
+        update_game_state(GameState::Playing, &mut global_events);
+        update_global_score(0, &mut global_events);
 
         let (mut mover, mut player_transform) = player_query.single_mut();
 
@@ -545,7 +541,7 @@ fn pregame_ui_system(
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     loading: Option<Res<LoadingAssets>>,
-    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
+    mut global_events: EventWriter<GlobalsEvent>,
 ) {
     match globals.game_state {
         GameState::Loading => {
@@ -558,7 +554,7 @@ fn pregame_ui_system(
                     });
                 }
                 LoadState::Loaded => {
-                    change_game_state_event.send(ChangeGameStateEvent(GameState::StartScreen));
+                    update_game_state(GameState::StartScreen, &mut global_events);
 
                     query.iter_mut().for_each(|(mut text, _)| {
                         text.sections[0].value = "Press <Space> to Start".to_string();
@@ -571,7 +567,7 @@ fn pregame_ui_system(
         }
         GameState::StartScreen => {
             if keyboard_input.just_pressed(KeyCode::Space) {
-                change_game_state_event.send(ChangeGameStateEvent(GameState::Playing));
+                update_game_state(GameState::Playing, &mut global_events);
 
                 query.iter_mut().for_each(|(_, mut visibility)| {
                     visibility.is_visible = false;
@@ -582,16 +578,15 @@ fn pregame_ui_system(
     }
 }
 
-fn game_state_event_system(
-    mut globals: ResMut<Globals>,
-    mut events: EventReader<ChangeGameStateEvent>,
+fn game_over_ui_update_system(
+    mut events: EventReader<GlobalsEvent>,
     mut game_over_query: Query<&mut Visibility, With<GameOverText>>,
 ) {
     events.iter().for_each(|event| {
-        globals.game_state = event.0;
-
-        let mut game_over_visibility = game_over_query.single_mut();
-        game_over_visibility.is_visible = matches!(event.0, GameState::GameOver);
+        if let GlobalsEvent::GameStateChanged(game_state) = event {
+            let mut game_over_visibility = game_over_query.single_mut();
+            game_over_visibility.is_visible = matches!(game_state, GameState::GameOver);
+        }
     });
 }
 
@@ -615,30 +610,39 @@ fn update_global_score(new_score: u32, global_events: &mut EventWriter<GlobalsEv
     global_events.send(GlobalsEvent::ScoreUpdated(new_score));
 }
 
+fn update_game_state(new_state: GameState, global_events: &mut EventWriter<GlobalsEvent>) {
+    global_events.send(GlobalsEvent::GameStateChanged(new_state));
+}
+
 fn global_events_update_system(
     mut globals: ResMut<Globals>,
     mut events: EventReader<GlobalsEvent>,
 ) {
     events.iter().for_each(|event| match event {
         GlobalsEvent::ScoreUpdated(score) => globals.score = *score,
+        GlobalsEvent::GameStateChanged(game_state) => globals.game_state = *game_state,
     })
+}
+
+fn game_over_system(
+    mut events: EventReader<PlayerEvent>,
+    mut global_events: EventWriter<GlobalsEvent>,
+) {
+    events.iter().for_each(|event| {
+        if matches!(event, PlayerEvent::Killed) {
+            update_game_state(GameState::GameOver, &mut global_events);
+        }
+    });
 }
 
 fn scoring_system(
     globals: Res<Globals>,
     mut events: EventReader<PlayerEvent>,
     mut global_events: EventWriter<GlobalsEvent>,
-    mut change_game_state_event: EventReader<ChangeGameStateEvent>,
 ) {
     events.iter().for_each(|event| {
         if matches!(event, PlayerEvent::CrossedPillar) {
             update_global_score(globals.score + 1, &mut global_events);
-        }
-    });
-
-    change_game_state_event.iter().for_each(|event| {
-        if matches!(event.0, GameState::Playing) {
-            update_global_score(0, &mut global_events);
         }
     });
 }
