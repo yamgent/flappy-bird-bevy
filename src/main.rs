@@ -1,5 +1,14 @@
+mod player;
+mod score;
+
 use bevy::prelude::*;
 use bevy_kira_audio::{Audio, AudioPlugin, AudioSource};
+use player::PlayerPlugin;
+use score::ScorePlugin;
+// TODO: Remove this if possible
+use player::PlayerCrossedPillarEvent;
+// TODO: Remove this if possible
+use score::{ResetScoreEvent, ScoreUpdatedEvent};
 
 const PILLAR_GAP: f32 = 150.0;
 const PILLAR_HEIGHT: f32 = 1024.0;
@@ -51,8 +60,6 @@ struct Globals {
     game_state: GameState,
 }
 
-struct Score(u32);
-
 #[derive(Component)]
 struct ScoreText;
 
@@ -66,37 +73,29 @@ struct StartScreenText;
 
 struct LoadingAssets(Vec<HandleUntyped>);
 
-struct PlayerCrossedPillarEvent;
 struct PlayerKilledEvent;
 
 enum GlobalsEvent {
     GameStateChanged(GameState),
 }
 
-struct IncreaseScoreEvent;
-struct ScoreUpdatedEvent(u32);
-struct ResetScoreEvent;
-
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(AudioPlugin)
+        .add_plugin(ScorePlugin)
+        .add_plugin(PlayerPlugin)
         .add_startup_system(setup)
         .insert_resource(LoadingAssets(vec![]))
         .insert_resource(PillarSpawnerTimer(Timer::from_seconds(
             NEXT_PILLAR_SPAWN_TIME,
             true,
         )))
-        .insert_resource(Score(0))
         .insert_resource(Globals {
             game_state: GameState::Loading,
         })
         .insert_resource(PillarPool(vec![]))
-        .add_event::<PlayerCrossedPillarEvent>()
         .add_event::<PlayerKilledEvent>()
-        .add_event::<IncreaseScoreEvent>()
-        .add_event::<ScoreUpdatedEvent>()
-        .add_event::<ResetScoreEvent>()
         .add_event::<GlobalsEvent>()
         .add_system_set(
             SystemSet::new()
@@ -124,11 +123,9 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .label("events")
-                .with_system(score_event_handler_system)
                 .with_system(game_over_ui_update_system)
                 .with_system(game_over_system)
                 .with_system(player_event_audio_system)
-                .with_system(scoring_system)
                 .with_system(score_ui_update_system)
                 .with_system(global_events_update_system),
         )
@@ -618,27 +615,6 @@ fn update_game_state(new_state: GameState, global_events: &mut EventWriter<Globa
     global_events.send(GlobalsEvent::GameStateChanged(new_state));
 }
 
-fn score_event_handler_system(
-    mut score: ResMut<Score>,
-    mut increase_score_events: EventReader<IncreaseScoreEvent>,
-    mut reset_score_events: EventReader<ResetScoreEvent>,
-    mut score_updated_events: EventWriter<ScoreUpdatedEvent>,
-) {
-    let old_score = score.0;
-
-    increase_score_events.iter().for_each(|_| {
-        score.0 += 1;
-    });
-
-    reset_score_events.iter().for_each(|_| {
-        score.0 = 0;
-    });
-
-    if old_score != score.0 {
-        score_updated_events.send(ScoreUpdatedEvent(score.0));
-    }
-}
-
 fn global_events_update_system(
     mut globals: ResMut<Globals>,
     mut events: EventReader<GlobalsEvent>,
@@ -654,15 +630,6 @@ fn game_over_system(
 ) {
     killed_events.iter().for_each(|_| {
         update_game_state(GameState::GameOver, &mut global_events);
-    });
-}
-
-fn scoring_system(
-    mut crossed_event: EventReader<PlayerCrossedPillarEvent>,
-    mut increase_score_events: EventWriter<IncreaseScoreEvent>,
-) {
-    crossed_event.iter().for_each(|_| {
-        increase_score_events.send(IncreaseScoreEvent);
     });
 }
 
