@@ -85,14 +85,14 @@ fn main() {
         .add_event::<ChangeGameStateEvent>()
         .add_system_set(
             SystemSet::new()
-                .label("input")
-                .before("physics")
+                .label("physics")
+                .before("input")
                 .with_system(mover_system)
                 .with_system(mover_window_left_despawn_bound_system),
         )
         .add_system_set(
             SystemSet::new()
-                .label("physics")
+                .label("input")
                 .before("logic")
                 .with_system(player_input_system),
         )
