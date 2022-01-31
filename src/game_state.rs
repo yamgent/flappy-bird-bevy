@@ -28,12 +28,17 @@ pub enum GameStateType {
 
 pub struct GameState(pub GameStateType);
 
+// TODO: Provide this as methods of GameStateType?
 pub fn is_playing(game_state: &Res<GameState>) -> bool {
     matches!(game_state.0, GameStateType::Playing)
 }
 
 pub fn is_game_over(game_state: &Res<GameState>) -> bool {
     matches!(game_state.0, GameStateType::GameOver)
+}
+
+pub fn is_loading(game_state: &Res<GameState>) -> bool {
+    matches!(game_state.0, GameStateType::Loading)
 }
 
 fn update_game_state(

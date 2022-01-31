@@ -11,7 +11,7 @@ use game_state::{
     GameState, GameStatePlugin, GameStateType, OnGameStateChangedEvent, StartNewGameEvent,
 };
 use ingame_ui::IngameUiPlugin;
-use loading::{FinishLoadingEvent, LoadingManagerPlugin};
+use loading::LoadingManagerPlugin;
 use player::PlayerPlugin;
 use score::ScorePlugin;
 
@@ -100,7 +100,7 @@ fn main() {
                 .with_system(player_pillar_check_system)
                 .with_system(pillar_spawn_system)
                 .with_system(restart_system)
-                .with_system(pregame_ui_system),
+                .with_system(start_screen_ui_system),
         )
         .add_system_set(
             SystemSet::new()
@@ -162,7 +162,7 @@ fn setup(
         .spawn_bundle(TextBundle {
             text: Text {
                 sections: vec![TextSection {
-                    value: "Loading...".to_string(),
+                    value: "".to_string(),
                     style: TextStyle {
                         font: font.clone(),
                         font_size: 60.0,
@@ -280,7 +280,6 @@ fn setup(
 
     loading.0.push(background.clone_untyped());
     loading.0.push(player.clone_untyped());
-    loading.0.push(font.clone_untyped());
     loading.0.push(pillar_top.clone_untyped());
     loading.0.push(pillar_bottom.clone_untyped());
 }
@@ -465,48 +464,25 @@ fn restart_system(
     }
 }
 
-fn pregame_ui_system(
+fn start_screen_ui_system(
     game_status: Res<GameState>,
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Text, &mut Visibility), With<StartScreenText>>,
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    loading: Option<Res<LoadingAssets>>,
     mut start_new_events: EventWriter<StartNewGameEvent>,
-    mut finish_loading_events: EventWriter<FinishLoadingEvent>,
 ) {
-    match game_status.0 {
-        GameStateType::Loading => {
-            use bevy::asset::LoadState;
+    if let GameStateType::StartScreen = game_status.0 {
+        // TODO: Don't continuously set this
+        query.iter_mut().for_each(|(mut text, _)| {
+            text.sections[0].value = "Press <Space> to start".to_string()
+        });
 
-            match asset_server.get_group_load_state(loading.unwrap().0.iter().map(|h| h.id)) {
-                LoadState::Failed => {
-                    query.iter_mut().for_each(|(mut text, _)| {
-                        text.sections[0].value = "Loading failed...".to_string();
-                    });
-                }
-                LoadState::Loaded => {
-                    finish_loading_events.send(FinishLoadingEvent);
+        if keyboard_input.just_pressed(KeyCode::Space) {
+            start_new_events.send(StartNewGameEvent);
 
-                    query.iter_mut().for_each(|(mut text, _)| {
-                        text.sections[0].value = "Press <Space> to Start".to_string();
-                    });
-
-                    commands.remove_resource::<LoadingAssets>();
-                }
-                _ => {}
-            }
+            query.iter_mut().for_each(|(_, mut visibility)| {
+                visibility.is_visible = false;
+            });
         }
-        GameStateType::StartScreen => {
-            if keyboard_input.just_pressed(KeyCode::Space) {
-                start_new_events.send(StartNewGameEvent);
-
-                query.iter_mut().for_each(|(_, mut visibility)| {
-                    visibility.is_visible = false;
-                });
-            }
-        }
-        _ => {}
     }
 }
 
