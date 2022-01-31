@@ -6,6 +6,7 @@ mod mover;
 mod pillars;
 mod player;
 mod score;
+mod screen_start;
 
 use audio::GameAudioPlugin;
 use bevy::prelude::*;
@@ -18,15 +19,13 @@ use mover::MoverPlugin;
 use pillars::PillarsPlugin;
 use player::PlayerPlugin;
 use score::ScorePlugin;
+use screen_start::ScreenStartPlugin;
 
 // TODO: Remove ALL these if possible
 use loading::LoadingAssets;
 
 #[derive(Component)]
 struct GameOverText;
-
-#[derive(Component)]
-struct StartScreenText;
 
 fn main() {
     App::new()
@@ -39,13 +38,13 @@ fn main() {
         .add_plugin(IngameUiPlugin)
         .add_plugin(MoverPlugin)
         .add_plugin(PillarsPlugin)
+        .add_plugin(ScreenStartPlugin)
         .add_startup_system(setup)
         .add_system_set(
             SystemSet::new()
                 .label("logic")
                 .before("events")
-                .with_system(restart_system)
-                .with_system(start_screen_ui_system),
+                .with_system(restart_system),
         )
         .add_system_set(
             SystemSet::new()
@@ -86,35 +85,6 @@ fn setup(
         },
         ..Default::default()
     });
-
-    commands
-        .spawn_bundle(TextBundle {
-            text: Text {
-                sections: vec![TextSection {
-                    value: "".to_string(),
-                    style: TextStyle {
-                        font: font.clone(),
-                        font_size: 60.0,
-                        color: Color::BLACK,
-                    },
-                }],
-                alignment: TextAlignment {
-                    vertical: VerticalAlign::Center,
-                    horizontal: HorizontalAlign::Center,
-                },
-            },
-            style: Style {
-                position_type: PositionType::Absolute,
-                position: Rect {
-                    top: Val::Percent(50.0),
-                    left: Val::Percent(50.0),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-        .insert(StartScreenText);
 
     commands
         .spawn_bundle(TextBundle {
@@ -166,28 +136,6 @@ fn restart_system(
 ) {
     if game_state::is_game_over(&game_status) && keyboard_input.just_pressed(KeyCode::R) {
         start_new_events.send(StartNewGameEvent);
-    }
-}
-
-fn start_screen_ui_system(
-    game_status: Res<GameState>,
-    keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<(&mut Text, &mut Visibility), With<StartScreenText>>,
-    mut start_new_events: EventWriter<StartNewGameEvent>,
-) {
-    if let GameStateType::StartScreen = game_status.0 {
-        // TODO: Don't continuously set this
-        query.iter_mut().for_each(|(mut text, _)| {
-            text.sections[0].value = "Press <Space> to start".to_string()
-        });
-
-        if keyboard_input.just_pressed(KeyCode::Space) {
-            start_new_events.send(StartNewGameEvent);
-
-            query.iter_mut().for_each(|(_, mut visibility)| {
-                visibility.is_visible = false;
-            });
-        }
     }
 }
 

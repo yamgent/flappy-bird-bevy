@@ -41,6 +41,10 @@ pub fn is_loading(game_state: &Res<GameState>) -> bool {
     matches!(game_state.0, GameStateType::Loading)
 }
 
+pub fn is_start_screen(game_state: &Res<GameState>) -> bool {
+    matches!(game_state.0, GameStateType::StartScreen)
+}
+
 fn update_game_state(
     new_state: GameStateType,
     game_status: &mut ResMut<GameState>,
