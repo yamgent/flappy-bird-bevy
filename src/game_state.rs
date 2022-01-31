@@ -18,7 +18,7 @@ impl Plugin for GameStatePlugin {
 pub struct StartNewGameEvent;
 pub struct OnGameStateChangedEvent(pub GameStateType);
 
-#[derive(Clone, Copy)] // TODO: Remove this when event is no longer using GameState?
+#[derive(Clone, Copy)]
 pub enum GameStateType {
     Loading,
     StartScreen,

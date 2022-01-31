@@ -28,7 +28,6 @@ fn mover_system(
     time: Res<Time>,
     mut query: Query<(&mut Mover, &mut Transform)>,
 ) {
-    // TODO: Is the coupling with game_state reasonable?
     if crate::game_state::is_playing(&game_state) {
         query.iter_mut().for_each(|(mut mover, mut transform)| {
             if mover.active {
