@@ -67,6 +67,15 @@ struct LoadingAssets(Vec<HandleUntyped>);
 
 struct ChangeGameStateEvent(GameState);
 
+enum PlayerEvent {
+    CrossedPillar,
+    Killed,
+}
+
+enum GlobalsEvent {
+    ScoreUpdated,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -83,6 +92,8 @@ fn main() {
         })
         .insert_resource(PillarPool(vec![]))
         .add_event::<ChangeGameStateEvent>()
+        .add_event::<PlayerEvent>()
+        .add_event::<GlobalsEvent>()
         .add_system_set(
             SystemSet::new()
                 .label("physics")
@@ -104,13 +115,15 @@ fn main() {
                 .with_system(player_pillar_check_system)
                 .with_system(pillar_spawn_system)
                 .with_system(restart_system)
-                .with_system(main_ui_system)
                 .with_system(pregame_ui_system),
         )
         .add_system_set(
             SystemSet::new()
                 .label("events")
-                .with_system(game_state_event_system),
+                .with_system(game_state_event_system)
+                .with_system(player_event_audio_system)
+                .with_system(scoring_system)
+                .with_system(score_ui_update_system),
         )
         .run();
 }
@@ -399,9 +412,8 @@ fn player_bounds_check_system(
     windows: Res<Windows>,
     globals: Res<Globals>,
     mut query: Query<&Transform, With<Player>>,
-    audio: Res<Audio>,
-    audio_collection: Res<AudioCollection>,
     mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
+    mut player_event: EventWriter<PlayerEvent>,
 ) {
     let transform = query.single_mut();
 
@@ -412,18 +424,17 @@ fn player_bounds_check_system(
 
         if transform.translation.y < min_y || transform.translation.y > max_y {
             change_game_state_event.send(ChangeGameStateEvent(GameState::GameOver));
-            audio.play(audio_collection.dead.clone());
+            player_event.send(PlayerEvent::Killed);
         }
     }
 }
 
 fn player_pillar_check_system(
-    mut globals: ResMut<Globals>,
+    globals: Res<Globals>,
     mut query: Query<(&Transform, &mut Pillar, &Mover), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
-    audio: Res<Audio>,
-    audio_collection: Res<AudioCollection>,
     mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
+    mut player_event: EventWriter<PlayerEvent>,
 ) {
     let player_transform = player_query.single();
 
@@ -440,13 +451,12 @@ fn player_pillar_check_system(
                     || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
                 {
                     change_game_state_event.send(ChangeGameStateEvent(GameState::GameOver));
-                    audio.play(audio_collection.dead.clone());
+                    player_event.send(PlayerEvent::Killed);
                 // divide by 4.0 => to allow player to score when he reaches 75% across the pillar
                 } else if transform.translation.x < -(PILLAR_WIDTH / 4.0) && !pillar.player_crossed
                 {
                     pillar.player_crossed = true;
-                    audio.play(audio_collection.crossed.clone());
-                    globals.score += 1;
+                    player_event.send(PlayerEvent::CrossedPillar);
                 }
             }
         });
@@ -492,7 +502,7 @@ fn pillar_spawn_system(
 }
 
 fn restart_system(
-    mut globals: ResMut<Globals>,
+    globals: Res<Globals>,
     windows: Res<Windows>,
     keyboard_input: Res<Input<KeyCode>>,
     mut player_query: Query<(&mut Mover, &mut Transform), With<Player>>,
@@ -506,7 +516,6 @@ fn restart_system(
         let window_width = window.width();
 
         change_game_state_event.send(ChangeGameStateEvent(GameState::Playing));
-        globals.score = 0;
 
         let (mut mover, mut player_transform) = player_query.single_mut();
 
@@ -526,12 +535,6 @@ fn restart_system(
 
         timer.0.reset();
     }
-}
-
-fn main_ui_system(globals: Res<Globals>, mut query: Query<&mut Text, With<ScoreText>>) {
-    let mut text = query.single_mut();
-
-    text.sections[1].value = globals.score.to_string();
 }
 
 fn pregame_ui_system(
@@ -588,5 +591,62 @@ fn game_state_event_system(
 
         let mut game_over_visibility = game_over_query.single_mut();
         game_over_visibility.is_visible = matches!(event.0, GameState::GameOver);
+    });
+}
+
+fn player_event_audio_system(
+    audio: Res<Audio>,
+    audio_collection: Res<AudioCollection>,
+    mut events: EventReader<PlayerEvent>,
+) {
+    events.iter().for_each(|event| match event {
+        PlayerEvent::CrossedPillar => {
+            audio.play(audio_collection.crossed.clone());
+        }
+        PlayerEvent::Killed => {
+            audio.play(audio_collection.dead.clone());
+        }
+    });
+}
+
+// helper method for Globals
+fn update_global_score(
+    new_score: u32,
+    globals: &mut ResMut<Globals>,
+    global_events: &mut EventWriter<GlobalsEvent>,
+) {
+    globals.score = new_score;
+    global_events.send(GlobalsEvent::ScoreUpdated);
+}
+
+fn scoring_system(
+    mut globals: ResMut<Globals>,
+    mut events: EventReader<PlayerEvent>,
+    mut global_events: EventWriter<GlobalsEvent>,
+    mut change_game_state_event: EventReader<ChangeGameStateEvent>,
+) {
+    events.iter().for_each(|event| {
+        if matches!(event, PlayerEvent::CrossedPillar) {
+            update_global_score(globals.score + 1, &mut globals, &mut global_events);
+        }
+    });
+
+    change_game_state_event.iter().for_each(|event| {
+        if matches!(event.0, GameState::Playing) {
+            update_global_score(0, &mut globals, &mut global_events);
+        }
+    });
+}
+
+fn score_ui_update_system(
+    globals: Res<Globals>,
+    mut global_events: EventReader<GlobalsEvent>,
+    mut query: Query<&mut Text, With<ScoreText>>,
+) {
+    global_events.iter().for_each(|event| {
+        if matches!(event, GlobalsEvent::ScoreUpdated) {
+            let mut text = query.single_mut();
+            text.sections[1].value = globals.score.to_string();
+        }
     });
 }
