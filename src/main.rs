@@ -25,8 +25,7 @@ struct Pillar {
     player_crossed: bool,
 }
 
-#[derive(Component)]
-struct PillarPool;
+struct PillarPool(Vec<Entity>);
 
 struct PillarSpawnerTimer(Timer);
 
@@ -69,6 +68,7 @@ fn main() {
             game_state: GameState::Loading,
             score: 0,
         })
+        .insert_resource(PillarPool(vec![]))
         .add_system(player_gravity_system)
         .add_system(game_over_ui_text_system)
         .add_system(pillar_movement_system)
@@ -84,6 +84,7 @@ fn setup(
     asset_server: Res<AssetServer>,
     mut windows: ResMut<Windows>,
     mut loading: ResMut<LoadingAssets>,
+    mut pillar_pools: ResMut<PillarPool>,
 ) {
     let window = windows.get_primary_mut().unwrap();
     window.set_resizable(false);
@@ -231,59 +232,49 @@ fn setup(
         })
         .insert(ScoreText);
 
-    commands
-        .spawn()
-        .insert(PillarPool)
-        .insert(Transform {
-            ..Default::default()
-        })
-        .insert(GlobalTransform {
-            ..Default::default()
-        })
-        .with_children(|parent| {
-            (0..10).for_each(|_| {
-                parent
-                    .spawn()
-                    .insert(Pillar {
-                        active: false,
-                        player_crossed: false,
-                    })
-                    .insert(Transform {
-                        translation: Vec3::new(window.width(), 0.0, 0.0),
+    pillar_pools.0.extend((0..10).map(|_| {
+        commands
+            .spawn()
+            .insert(Pillar {
+                active: false,
+                player_crossed: false,
+            })
+            .insert(Transform {
+                translation: Vec3::new(window.width(), 0.0, 0.0),
+                ..Default::default()
+            })
+            .insert(GlobalTransform {
+                ..Default::default()
+            })
+            .with_children(|parent| {
+                parent.spawn_bundle(SpriteBundle {
+                    texture: pillar_top.clone(),
+                    transform: Transform {
+                        translation: Vec3::new(
+                            0.0,
+                            (PILLAR_HEIGHT / 2.0) + (PILLAR_GAP / 2.0),
+                            0.0,
+                        ),
                         ..Default::default()
-                    })
-                    .insert(GlobalTransform {
-                        ..Default::default()
-                    })
-                    .with_children(|gparent| {
-                        gparent.spawn_bundle(SpriteBundle {
-                            texture: pillar_top.clone(),
-                            transform: Transform {
-                                translation: Vec3::new(
-                                    0.0,
-                                    (PILLAR_HEIGHT / 2.0) + (PILLAR_GAP / 2.0),
-                                    0.0,
-                                ),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        });
+                    },
+                    ..Default::default()
+                });
 
-                        gparent.spawn_bundle(SpriteBundle {
-                            texture: pillar_bottom.clone(),
-                            transform: Transform {
-                                translation: Vec3::new(
-                                    0.0,
-                                    -(PILLAR_HEIGHT / 2.0) - (PILLAR_GAP / 2.0),
-                                    0.0,
-                                ),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        });
-                    });
-            });
-        });
+                parent.spawn_bundle(SpriteBundle {
+                    texture: pillar_bottom.clone(),
+                    transform: Transform {
+                        translation: Vec3::new(
+                            0.0,
+                            -(PILLAR_HEIGHT / 2.0) - (PILLAR_GAP / 2.0),
+                            0.0,
+                        ),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                });
+            })
+            .id()
+    }));
 
     commands.insert_resource(AudioCollection {
         crossed: crossed.clone(),
@@ -396,8 +387,8 @@ fn pillar_spawn_system(
     time: Res<Time>,
     globals: Res<Globals>,
     mut timer: ResMut<PillarSpawnerTimer>,
-    query: Query<&Children, With<PillarPool>>,
-    mut children_query: Query<(&mut Pillar, &mut Transform)>,
+    pillar_pools: Res<PillarPool>,
+    mut pillar_query: Query<(&mut Pillar, &mut Transform)>,
 ) {
     if matches!(globals.game_state, GameState::Playing)
         && timer.0.tick(time.delta()).just_finished()
@@ -406,11 +397,10 @@ fn pillar_spawn_system(
         let window_width = window.width() as f32;
         let window_height = window.height() as f32;
 
-        let children = query.single();
         let mut found = false;
 
-        for &child in children.iter() {
-            let (mut pillar, mut transform) = children_query.get_mut(child).unwrap();
+        for child in pillar_pools.0.iter() {
+            let (mut pillar, mut transform) = pillar_query.get_mut(*child).unwrap();
             if !pillar.active {
                 let gap_y = ((rand::random::<f32>() - 0.5) * 2.0) * ((window_height - 100.0) / 2.0);
 
