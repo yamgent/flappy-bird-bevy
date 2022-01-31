@@ -45,7 +45,6 @@ struct Globals {
 #[derive(Component)]
 struct ScoreText;
 
-#[derive(Component)]
 struct AudioCollection {
     crossed: Handle<AudioSource>,
     dead: Handle<AudioSource>,
@@ -286,7 +285,7 @@ fn setup(
             });
         });
 
-    commands.spawn().insert(AudioCollection {
+    commands.insert_resource(AudioCollection {
         crossed: crossed.clone(),
         dead: dead.clone(),
     });
@@ -307,7 +306,7 @@ fn player_gravity_system(
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Player, &mut Transform)>,
     audio: Res<Audio>,
-    audio_collection_query: Query<&AudioCollection>,
+    audio_collection: Res<AudioCollection>,
 ) {
     let (mut player, mut transform) = query.single_mut();
 
@@ -326,7 +325,6 @@ fn player_gravity_system(
 
         if transform.translation.y < min_y || transform.translation.y > max_y {
             globals.game_state = GameState::GameOver;
-            let audio_collection = audio_collection_query.single();
             audio.play(audio_collection.dead.clone());
         }
     }
@@ -348,7 +346,7 @@ fn pillar_movement_system(
     mut query: Query<(&mut Transform, &mut Pillar), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
     audio: Res<Audio>,
-    audio_collection_query: Query<&AudioCollection>,
+    audio_collection: Res<AudioCollection>,
 ) {
     let window = windows.get_primary().unwrap();
     let window_width = window.width() as f32;
@@ -365,7 +363,6 @@ fn pillar_movement_system(
                 {
                     let top = PILLAR_GAP / 2.0 + transform.translation.y;
                     let bottom = -PILLAR_GAP / 2.0 + transform.translation.y;
-                    let audio_collection = audio_collection_query.single();
 
                     if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
                         || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
