@@ -1,5 +1,6 @@
 mod audio;
 mod game_state;
+mod ingame_ui;
 mod loading;
 mod player;
 mod score;
@@ -9,6 +10,7 @@ use bevy::prelude::*;
 use game_state::{
     GameState, GameStatePlugin, GameStateType, OnGameStateChangedEvent, StartNewGameEvent,
 };
+use ingame_ui::IngameUiPlugin;
 use loading::{FinishLoadingEvent, LoadingManagerPlugin};
 use player::PlayerPlugin;
 use score::ScorePlugin;
@@ -16,7 +18,7 @@ use score::ScorePlugin;
 // TODO: Remove ALL these if possible
 use loading::LoadingAssets;
 use player::PlayerCrossedPillarEvent;
-use score::{ResetScoreEvent, ScoreUpdatedEvent};
+use score::ResetScoreEvent;
 
 const PILLAR_GAP: f32 = 150.0;
 const PILLAR_HEIGHT: f32 = 1024.0;
@@ -57,9 +59,6 @@ struct PillarPool(Vec<Entity>);
 struct PillarSpawnerTimer(Timer);
 
 #[derive(Component)]
-struct ScoreText;
-
-#[derive(Component)]
 struct StartScreenText;
 
 struct PlayerKilledEvent;
@@ -72,6 +71,7 @@ fn main() {
         .add_plugin(PlayerPlugin)
         .add_plugin(GameAudioPlugin)
         .add_plugin(LoadingManagerPlugin)
+        .add_plugin(IngameUiPlugin)
         .add_startup_system(setup)
         .insert_resource(PillarSpawnerTimer(Timer::from_seconds(
             NEXT_PILLAR_SPAWN_TIME,
@@ -105,8 +105,7 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .label("events")
-                .with_system(game_over_ui_update_system)
-                .with_system(score_ui_update_system),
+                .with_system(game_over_ui_update_system),
         )
         .run();
 }
@@ -227,45 +226,6 @@ fn setup(
             ..Default::default()
         })
         .insert(GameOverText);
-
-    commands
-        .spawn_bundle(TextBundle {
-            text: Text {
-                sections: vec![
-                    TextSection {
-                        value: "Score: ".to_string(),
-                        style: TextStyle {
-                            font: font.clone(),
-                            font_size: 30.0,
-                            color: Color::BLACK,
-                        },
-                    },
-                    TextSection {
-                        value: "0".to_string(),
-                        style: TextStyle {
-                            font: font.clone(),
-                            font_size: 30.0,
-                            color: Color::BLACK,
-                        },
-                    },
-                ],
-                alignment: TextAlignment {
-                    vertical: VerticalAlign::Center,
-                    horizontal: HorizontalAlign::Center,
-                },
-            },
-            style: Style {
-                position_type: PositionType::Absolute,
-                position: Rect {
-                    top: Val::Px(15.0),
-                    left: Val::Px(15.0),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-        .insert(ScoreText);
 
     pillar_pools.0.extend((0..10).map(|_| {
         commands
@@ -557,16 +517,5 @@ fn game_over_ui_update_system(
     game_status_changed.iter().for_each(|event| {
         let mut game_over_visibility = game_over_query.single_mut();
         game_over_visibility.is_visible = matches!(event.0, GameStateType::GameOver);
-    });
-}
-
-fn score_ui_update_system(
-    mut query: Query<&mut Text, With<ScoreText>>,
-    mut score_updated_events: EventReader<ScoreUpdatedEvent>,
-) {
-    let mut text = query.single_mut();
-
-    score_updated_events.iter().for_each(|event| {
-        text.sections[1].value = event.0.to_string();
     });
 }
