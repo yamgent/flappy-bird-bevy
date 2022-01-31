@@ -29,6 +29,7 @@ struct PillarPool(Vec<Entity>);
 
 struct PillarSpawnerTimer(Timer);
 
+#[derive(Clone, Copy)] // TODO: Remove this when event is no longer using GameState?
 enum GameState {
     Loading,
     StartScreen,
@@ -54,6 +55,8 @@ struct StartScreenText;
 
 struct LoadingAssets(Vec<HandleUntyped>);
 
+struct ChangeGameStateEvent(GameState);
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -69,13 +72,23 @@ fn main() {
             score: 0,
         })
         .insert_resource(PillarPool(vec![]))
-        .add_system(player_gravity_system)
-        .add_system(game_over_ui_text_system)
-        .add_system(pillar_movement_system)
-        .add_system(pillar_spawn_system)
-        .add_system(restart_system)
-        .add_system(main_ui_system)
-        .add_system(pregame_ui_system)
+        .add_event::<ChangeGameStateEvent>()
+        .add_system_set(
+            SystemSet::new()
+                .label("logic")
+                .with_system(player_gravity_system)
+                .with_system(pillar_movement_system)
+                .with_system(pillar_spawn_system)
+                .with_system(restart_system)
+                .with_system(main_ui_system)
+                .with_system(pregame_ui_system),
+        )
+        .add_system_set(
+            SystemSet::new()
+                .label("events")
+                .after("logic")
+                .with_system(game_state_event_system),
+        )
         .run();
 }
 
@@ -293,11 +306,12 @@ fn setup(
 fn player_gravity_system(
     windows: Res<Windows>,
     time: Res<Time>,
-    mut globals: ResMut<Globals>,
+    globals: Res<Globals>,
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Player, &mut Transform)>,
     audio: Res<Audio>,
     audio_collection: Res<AudioCollection>,
+    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
 ) {
     let (mut player, mut transform) = query.single_mut();
 
@@ -315,19 +329,10 @@ fn player_gravity_system(
         let (min_y, max_y) = (-window.height() as f32 / 2.0, window.height() as f32 / 2.0);
 
         if transform.translation.y < min_y || transform.translation.y > max_y {
-            globals.game_state = GameState::GameOver;
+            change_game_state_event.send(ChangeGameStateEvent(GameState::GameOver));
             audio.play(audio_collection.dead.clone());
         }
     }
-}
-
-fn game_over_ui_text_system(
-    globals: Res<Globals>,
-    mut query: Query<&mut Visibility, With<GameOverText>>,
-) {
-    let mut visibility = query.single_mut();
-
-    visibility.is_visible = matches!(globals.game_state, GameState::GameOver);
 }
 
 fn pillar_movement_system(
@@ -338,6 +343,7 @@ fn pillar_movement_system(
     player_query: Query<&Transform, With<Player>>,
     audio: Res<Audio>,
     audio_collection: Res<AudioCollection>,
+    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
 ) {
     let window = windows.get_primary().unwrap();
     let window_width = window.width() as f32;
@@ -358,7 +364,8 @@ fn pillar_movement_system(
                     if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
                         || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
                     {
-                        globals.game_state = GameState::GameOver;
+                        change_game_state_event.send(ChangeGameStateEvent(GameState::GameOver));
+
                         audio.play(audio_collection.dead.clone());
                     // divide by 4.0 => to allow player to score when he reaches 75% across the pillar
                     } else if transform.translation.x < -(PILLAR_WIDTH / 4.0)
@@ -426,10 +433,11 @@ fn restart_system(
     mut player_query: Query<(&mut Player, &mut Transform)>,
     mut pillar_query: Query<&mut Pillar>,
     mut timer: ResMut<PillarSpawnerTimer>,
+    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
 ) {
     if matches!(globals.game_state, GameState::GameOver) && keyboard_input.just_pressed(KeyCode::R)
     {
-        globals.game_state = GameState::Playing;
+        change_game_state_event.send(ChangeGameStateEvent(GameState::Playing));
         globals.score = 0;
 
         let (mut player, mut player_transform) = player_query.single_mut();
@@ -453,12 +461,13 @@ fn main_ui_system(globals: Res<Globals>, mut query: Query<&mut Text, With<ScoreT
 }
 
 fn pregame_ui_system(
-    mut globals: ResMut<Globals>,
+    globals: Res<Globals>,
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Text, &mut Visibility), With<StartScreenText>>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     loading: Option<Res<LoadingAssets>>,
+    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
 ) {
     match globals.game_state {
         GameState::Loading => {
@@ -471,7 +480,7 @@ fn pregame_ui_system(
                     });
                 }
                 LoadState::Loaded => {
-                    globals.game_state = GameState::StartScreen;
+                    change_game_state_event.send(ChangeGameStateEvent(GameState::StartScreen));
 
                     query.iter_mut().for_each(|(mut text, _)| {
                         text.sections[0].value = "Press <Space> to Start".to_string();
@@ -484,7 +493,7 @@ fn pregame_ui_system(
         }
         GameState::StartScreen => {
             if keyboard_input.just_pressed(KeyCode::Space) {
-                globals.game_state = GameState::Playing;
+                change_game_state_event.send(ChangeGameStateEvent(GameState::Playing));
 
                 query.iter_mut().for_each(|(_, mut visibility)| {
                     visibility.is_visible = false;
@@ -493,4 +502,17 @@ fn pregame_ui_system(
         }
         _ => {}
     }
+}
+
+fn game_state_event_system(
+    mut globals: ResMut<Globals>,
+    mut events: EventReader<ChangeGameStateEvent>,
+    mut game_over_query: Query<&mut Visibility, With<GameOverText>>,
+) {
+    events.iter().for_each(|event| {
+        globals.game_state = event.0;
+
+        let mut game_over_visibility = game_over_query.single_mut();
+        game_over_visibility.is_visible = matches!(event.0, GameState::GameOver);
+    });
 }
