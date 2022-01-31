@@ -334,9 +334,9 @@ fn player_gravity_system(
 
 fn game_over_ui_text_system(
     globals: Res<Globals>,
-    mut query: Query<(&mut Visibility, &GameOverText)>,
+    mut query: Query<&mut Visibility, With<GameOverText>>,
 ) {
-    let (mut visibility, _) = query.single_mut();
+    let mut visibility = query.single_mut();
 
     visibility.is_visible = matches!(globals.game_state, GameState::GameOver);
 }
@@ -346,14 +346,14 @@ fn pillar_movement_system(
     time: Res<Time>,
     mut globals: ResMut<Globals>,
     mut query: Query<(&mut Transform, &mut Pillar), Without<Player>>,
-    player_query: Query<(&Player, &Transform)>,
+    player_query: Query<&Transform, With<Player>>,
     audio: Res<Audio>,
     audio_collection_query: Query<&AudioCollection>,
 ) {
     let window = windows.get_primary().unwrap();
     let window_width = window.width() as f32;
 
-    let (_, player_transform) = player_query.single();
+    let player_transform = player_query.single();
 
     if matches!(globals.game_state, GameState::Playing) {
         query.iter_mut().for_each(|(mut transform, mut pillar)| {
@@ -399,7 +399,7 @@ fn pillar_spawn_system(
     time: Res<Time>,
     globals: Res<Globals>,
     mut timer: ResMut<PillarSpawnerTimer>,
-    query: Query<(&PillarPool, &Children)>,
+    query: Query<&Children, With<PillarPool>>,
     mut children_query: Query<(&mut Pillar, &mut Transform)>,
 ) {
     if matches!(globals.game_state, GameState::Playing)
@@ -409,7 +409,7 @@ fn pillar_spawn_system(
         let window_width = window.width() as f32;
         let window_height = window.height() as f32;
 
-        let (_, children) = query.single();
+        let children = query.single();
         let mut found = false;
 
         for &child in children.iter() {
@@ -459,8 +459,8 @@ fn restart_system(
     }
 }
 
-fn main_ui_system(globals: Res<Globals>, mut query: Query<(&ScoreText, &mut Text)>) {
-    let (_, mut text) = query.single_mut();
+fn main_ui_system(globals: Res<Globals>, mut query: Query<&mut Text, With<ScoreText>>) {
+    let mut text = query.single_mut();
 
     text.sections[1].value = globals.score.to_string();
 }
@@ -468,7 +468,7 @@ fn main_ui_system(globals: Res<Globals>, mut query: Query<(&ScoreText, &mut Text
 fn pregame_ui_system(
     mut globals: ResMut<Globals>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<(&StartScreenText, &mut Text, &mut Visibility)>,
+    mut query: Query<(&mut Text, &mut Visibility), With<StartScreenText>>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     loading: Option<Res<LoadingAssets>>,
@@ -479,14 +479,14 @@ fn pregame_ui_system(
 
             match asset_server.get_group_load_state(loading.unwrap().0.iter().map(|h| h.id)) {
                 LoadState::Failed => {
-                    query.iter_mut().for_each(|(_, mut text, _)| {
+                    query.iter_mut().for_each(|(mut text, _)| {
                         text.sections[0].value = "Loading failed...".to_string();
                     });
                 }
                 LoadState::Loaded => {
                     globals.game_state = GameState::StartScreen;
 
-                    query.iter_mut().for_each(|(_, mut text, _)| {
+                    query.iter_mut().for_each(|(mut text, _)| {
                         text.sections[0].value = "Press <Space> to Start".to_string();
                     });
 
@@ -499,7 +499,7 @@ fn pregame_ui_system(
             if keyboard_input.just_pressed(KeyCode::Space) {
                 globals.game_state = GameState::Playing;
 
-                query.iter_mut().for_each(|(_, _, mut visibility)| {
+                query.iter_mut().for_each(|(_, mut visibility)| {
                     visibility.is_visible = false;
                 });
             }
