@@ -1,11 +1,15 @@
 mod audio;
+mod game_state;
 mod loading;
 mod player;
 mod score;
 
 use audio::GameAudioPlugin;
 use bevy::prelude::*;
-use loading::LoadingManagerPlugin;
+use game_state::{
+    GameState, GameStatePlugin, GameStateType, OnGameStateChangedEvent, StartNewGameEvent,
+};
+use loading::{FinishLoadingEvent, LoadingManagerPlugin};
 use player::PlayerPlugin;
 use score::ScorePlugin;
 
@@ -52,18 +56,6 @@ struct PillarPool(Vec<Entity>);
 
 struct PillarSpawnerTimer(Timer);
 
-#[derive(Clone, Copy)] // TODO: Remove this when event is no longer using GameState?
-enum GameState {
-    Loading,
-    StartScreen,
-    Playing,
-    GameOver,
-}
-
-struct Globals {
-    game_state: GameState,
-}
-
 #[derive(Component)]
 struct ScoreText;
 
@@ -72,14 +64,11 @@ struct StartScreenText;
 
 struct PlayerKilledEvent;
 
-enum GlobalsEvent {
-    GameStateChanged(GameState),
-}
-
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(ScorePlugin)
+        .add_plugin(GameStatePlugin)
         .add_plugin(PlayerPlugin)
         .add_plugin(GameAudioPlugin)
         .add_plugin(LoadingManagerPlugin)
@@ -88,12 +77,8 @@ fn main() {
             NEXT_PILLAR_SPAWN_TIME,
             true,
         )))
-        .insert_resource(Globals {
-            game_state: GameState::Loading,
-        })
         .insert_resource(PillarPool(vec![]))
         .add_event::<PlayerKilledEvent>()
-        .add_event::<GlobalsEvent>()
         .add_system_set(
             SystemSet::new()
                 .label("physics")
@@ -121,9 +106,7 @@ fn main() {
             SystemSet::new()
                 .label("events")
                 .with_system(game_over_ui_update_system)
-                .with_system(game_over_system)
-                .with_system(score_ui_update_system)
-                .with_system(global_events_update_system),
+                .with_system(score_ui_update_system),
         )
         .run();
 }
@@ -343,12 +326,12 @@ fn setup(
 }
 
 fn mover_system(
-    globals: Res<Globals>,
+    game_status: Res<GameState>,
     time: Res<Time>,
     mut query: Query<(&mut Mover, &mut Transform)>,
 ) {
     // TODO: Is the coupling with game_state reasonable?
-    if matches!(globals.game_state, GameState::Playing) {
+    if game_state::is_playing(&game_status) {
         query.iter_mut().for_each(|(mut mover, mut transform)| {
             if mover.active {
                 let increment = mover.acceleration * time.delta().as_secs_f32();
@@ -360,14 +343,14 @@ fn mover_system(
 }
 
 fn mover_window_left_despawn_bound_system(
-    globals: Res<Globals>,
+    game_status: Res<GameState>,
     windows: Res<Windows>,
     mut query: Query<(&MoverWindowLeftDespawnBound, &mut Mover, &mut Transform)>,
 ) {
     let window = windows.get_primary().unwrap();
     let window_width = window.width() as f32;
 
-    if matches!(globals.game_state, GameState::Playing) {
+    if game_state::is_playing(&game_status) {
         query
             .iter_mut()
             .for_each(|(mover_window_bound, mut mover, mut transform)| {
@@ -386,28 +369,26 @@ fn mover_window_left_despawn_bound_system(
 }
 
 fn player_input_system(
-    globals: Res<Globals>,
+    game_status: Res<GameState>,
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<&mut Mover, With<Player>>,
 ) {
     let mut mover = query.single_mut();
 
-    if matches!(globals.game_state, GameState::Playing)
-        && keyboard_input.just_pressed(KeyCode::Space)
-    {
+    if game_state::is_playing(&game_status) && keyboard_input.just_pressed(KeyCode::Space) {
         mover.velocity.y = LEAP_Y_VELOCITY;
     }
 }
 
 fn player_bounds_check_system(
     windows: Res<Windows>,
-    globals: Res<Globals>,
+    game_status: Res<GameState>,
     mut query: Query<&Transform, With<Player>>,
     mut killed_event: EventWriter<PlayerKilledEvent>,
 ) {
     let transform = query.single_mut();
 
-    if matches!(globals.game_state, GameState::Playing) {
+    if game_state::is_playing(&game_status) {
         let window = windows.get_primary().unwrap();
 
         let (min_y, max_y) = (-window.height() as f32 / 2.0, window.height() as f32 / 2.0);
@@ -419,7 +400,7 @@ fn player_bounds_check_system(
 }
 
 fn player_pillar_check_system(
-    globals: Res<Globals>,
+    game_status: Res<GameState>,
     mut query: Query<(&Transform, &mut Pillar, &Mover), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
     mut cross_event: EventWriter<PlayerCrossedPillarEvent>,
@@ -427,7 +408,7 @@ fn player_pillar_check_system(
 ) {
     let player_transform = player_query.single();
 
-    if matches!(globals.game_state, GameState::Playing) {
+    if game_state::is_playing(&game_status) {
         query.iter_mut().for_each(|(transform, mut pillar, mover)| {
             if mover.active
                 && transform.translation.x <= (PILLAR_WIDTH / 2.0)
@@ -454,14 +435,12 @@ fn player_pillar_check_system(
 fn pillar_spawn_system(
     windows: Res<Windows>,
     time: Res<Time>,
-    globals: Res<Globals>,
+    game_status: Res<GameState>,
     mut timer: ResMut<PillarSpawnerTimer>,
     pillar_pools: Res<PillarPool>,
     mut pillar_query: Query<(&mut Pillar, &mut Transform, &mut Mover)>,
 ) {
-    if matches!(globals.game_state, GameState::Playing)
-        && timer.0.tick(time.delta()).just_finished()
-    {
+    if game_state::is_playing(&game_status) && timer.0.tick(time.delta()).just_finished() {
         let window = windows.get_primary().unwrap();
         let window_width = window.width() as f32;
         let window_height = window.height() as f32;
@@ -490,21 +469,20 @@ fn pillar_spawn_system(
 }
 
 fn restart_system(
-    globals: Res<Globals>,
+    game_status: Res<GameState>,
     windows: Res<Windows>,
     keyboard_input: Res<Input<KeyCode>>,
     mut player_query: Query<(&mut Mover, &mut Transform), With<Player>>,
     mut pillar_query: Query<(&mut Mover, &mut Pillar, &mut Transform), Without<Player>>,
     mut timer: ResMut<PillarSpawnerTimer>,
-    mut global_events: EventWriter<GlobalsEvent>,
     mut reset_score_events: EventWriter<ResetScoreEvent>,
+    mut start_new_events: EventWriter<StartNewGameEvent>,
 ) {
-    if matches!(globals.game_state, GameState::GameOver) && keyboard_input.just_pressed(KeyCode::R)
-    {
+    if game_state::is_game_over(&game_status) && keyboard_input.just_pressed(KeyCode::R) {
         let window = windows.get_primary().unwrap();
         let window_width = window.width();
 
-        update_game_state(GameState::Playing, &mut global_events);
+        start_new_events.send(StartNewGameEvent);
         reset_score_events.send(ResetScoreEvent);
 
         let (mut mover, mut player_transform) = player_query.single_mut();
@@ -528,16 +506,17 @@ fn restart_system(
 }
 
 fn pregame_ui_system(
-    globals: Res<Globals>,
+    game_status: Res<GameState>,
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<(&mut Text, &mut Visibility), With<StartScreenText>>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     loading: Option<Res<LoadingAssets>>,
-    mut global_events: EventWriter<GlobalsEvent>,
+    mut start_new_events: EventWriter<StartNewGameEvent>,
+    mut finish_loading_events: EventWriter<FinishLoadingEvent>,
 ) {
-    match globals.game_state {
-        GameState::Loading => {
+    match game_status.0 {
+        GameStateType::Loading => {
             use bevy::asset::LoadState;
 
             match asset_server.get_group_load_state(loading.unwrap().0.iter().map(|h| h.id)) {
@@ -547,7 +526,7 @@ fn pregame_ui_system(
                     });
                 }
                 LoadState::Loaded => {
-                    update_game_state(GameState::StartScreen, &mut global_events);
+                    finish_loading_events.send(FinishLoadingEvent);
 
                     query.iter_mut().for_each(|(mut text, _)| {
                         text.sections[0].value = "Press <Space> to Start".to_string();
@@ -558,9 +537,9 @@ fn pregame_ui_system(
                 _ => {}
             }
         }
-        GameState::StartScreen => {
+        GameStateType::StartScreen => {
             if keyboard_input.just_pressed(KeyCode::Space) {
-                update_game_state(GameState::Playing, &mut global_events);
+                start_new_events.send(StartNewGameEvent);
 
                 query.iter_mut().for_each(|(_, mut visibility)| {
                     visibility.is_visible = false;
@@ -572,36 +551,12 @@ fn pregame_ui_system(
 }
 
 fn game_over_ui_update_system(
-    mut events: EventReader<GlobalsEvent>,
+    mut game_status_changed: EventReader<OnGameStateChangedEvent>,
     mut game_over_query: Query<&mut Visibility, With<GameOverText>>,
 ) {
-    events.iter().for_each(|event| {
-        if let GlobalsEvent::GameStateChanged(game_state) = event {
-            let mut game_over_visibility = game_over_query.single_mut();
-            game_over_visibility.is_visible = matches!(game_state, GameState::GameOver);
-        }
-    });
-}
-
-fn update_game_state(new_state: GameState, global_events: &mut EventWriter<GlobalsEvent>) {
-    global_events.send(GlobalsEvent::GameStateChanged(new_state));
-}
-
-fn global_events_update_system(
-    mut globals: ResMut<Globals>,
-    mut events: EventReader<GlobalsEvent>,
-) {
-    events.iter().for_each(|event| match event {
-        GlobalsEvent::GameStateChanged(game_state) => globals.game_state = *game_state,
-    })
-}
-
-fn game_over_system(
-    mut killed_events: EventReader<PlayerKilledEvent>,
-    mut global_events: EventWriter<GlobalsEvent>,
-) {
-    killed_events.iter().for_each(|_| {
-        update_game_state(GameState::GameOver, &mut global_events);
+    game_status_changed.iter().for_each(|event| {
+        let mut game_over_visibility = game_over_query.single_mut();
+        game_over_visibility.is_visible = matches!(event.0, GameStateType::GameOver);
     });
 }
 

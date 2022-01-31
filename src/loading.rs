@@ -7,6 +7,9 @@ pub struct LoadingManagerPlugin;
 
 impl Plugin for LoadingManagerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(LoadingAssets(vec![]));
+        app.insert_resource(LoadingAssets(vec![]))
+            .add_event::<FinishLoadingEvent>();
     }
 }
+
+pub struct FinishLoadingEvent;
