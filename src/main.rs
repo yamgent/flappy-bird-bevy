@@ -2,6 +2,7 @@ mod audio;
 mod game_state;
 mod ingame_ui;
 mod loading;
+mod mover;
 mod player;
 mod score;
 
@@ -12,6 +13,7 @@ use game_state::{
 };
 use ingame_ui::IngameUiPlugin;
 use loading::LoadingManagerPlugin;
+use mover::MoverPlugin;
 use player::PlayerPlugin;
 use score::ScorePlugin;
 
@@ -19,6 +21,8 @@ use score::ScorePlugin;
 use loading::LoadingAssets;
 use player::PlayerCrossedPillarEvent;
 use score::ResetScoreEvent;
+
+use crate::mover::{Mover, MoverWindowLeftDespawnBound};
 
 const PILLAR_GAP: f32 = 150.0;
 const PILLAR_HEIGHT: f32 = 1024.0;
@@ -30,18 +34,6 @@ const NEXT_PILLAR_SPAWN_TIME: f32 = 3.0;
 const PLAYER_GRAVITY: f32 = 9.81 * 60.0;
 const LEAP_Y_VELOCITY: f32 = 5.0 * 60.0;
 const PILLAR_SPEED: f32 = 150.0;
-
-#[derive(Component)]
-struct Mover {
-    active: bool,
-    velocity: Vec3,
-    acceleration: Vec3,
-}
-
-#[derive(Component)]
-struct MoverWindowLeftDespawnBound {
-    object_width: f32,
-}
 
 #[derive(Component)]
 struct Player;
@@ -72,6 +64,7 @@ fn main() {
         .add_plugin(GameAudioPlugin)
         .add_plugin(LoadingManagerPlugin)
         .add_plugin(IngameUiPlugin)
+        .add_plugin(MoverPlugin)
         .add_startup_system(setup)
         .insert_resource(PillarSpawnerTimer(Timer::from_seconds(
             NEXT_PILLAR_SPAWN_TIME,
@@ -79,13 +72,6 @@ fn main() {
         )))
         .insert_resource(PillarPool(vec![]))
         .add_event::<PlayerKilledEvent>()
-        .add_system_set(
-            SystemSet::new()
-                .label("physics")
-                .before("input")
-                .with_system(mover_system)
-                .with_system(mover_window_left_despawn_bound_system),
-        )
         .add_system_set(
             SystemSet::new()
                 .label("input")
@@ -282,49 +268,6 @@ fn setup(
     loading.0.push(player.clone_untyped());
     loading.0.push(pillar_top.clone_untyped());
     loading.0.push(pillar_bottom.clone_untyped());
-}
-
-fn mover_system(
-    game_status: Res<GameState>,
-    time: Res<Time>,
-    mut query: Query<(&mut Mover, &mut Transform)>,
-) {
-    // TODO: Is the coupling with game_state reasonable?
-    if game_state::is_playing(&game_status) {
-        query.iter_mut().for_each(|(mut mover, mut transform)| {
-            if mover.active {
-                let increment = mover.acceleration * time.delta().as_secs_f32();
-                mover.velocity += increment;
-                transform.translation += mover.velocity * time.delta().as_secs_f32();
-            }
-        });
-    }
-}
-
-fn mover_window_left_despawn_bound_system(
-    game_status: Res<GameState>,
-    windows: Res<Windows>,
-    mut query: Query<(&MoverWindowLeftDespawnBound, &mut Mover, &mut Transform)>,
-) {
-    let window = windows.get_primary().unwrap();
-    let window_width = window.width() as f32;
-
-    if game_state::is_playing(&game_status) {
-        query
-            .iter_mut()
-            .for_each(|(mover_window_bound, mut mover, mut transform)| {
-                if mover.active
-                    && transform.translation.x
-                        < (-window_width / 2.0) - (mover_window_bound.object_width / 2.0)
-                {
-                    mover.active = false;
-
-                    // hack to avoid dealing with visibility
-                    // (have to modify children which is troublesome...)
-                    transform.translation.x = window_width;
-                }
-            });
-    }
 }
 
 fn player_input_system(
