@@ -65,10 +65,8 @@ struct StartScreenText;
 
 struct LoadingAssets(Vec<HandleUntyped>);
 
-enum PlayerEvent {
-    CrossedPillar,
-    Killed,
-}
+struct PlayerCrossedPillarEvent;
+struct PlayerKilledEvent;
 
 enum GlobalsEvent {
     ScoreUpdated(u32),
@@ -90,7 +88,8 @@ fn main() {
             score: 0,
         })
         .insert_resource(PillarPool(vec![]))
-        .add_event::<PlayerEvent>()
+        .add_event::<PlayerCrossedPillarEvent>()
+        .add_event::<PlayerKilledEvent>()
         .add_event::<GlobalsEvent>()
         .add_system_set(
             SystemSet::new()
@@ -412,7 +411,7 @@ fn player_bounds_check_system(
     windows: Res<Windows>,
     globals: Res<Globals>,
     mut query: Query<&Transform, With<Player>>,
-    mut player_event: EventWriter<PlayerEvent>,
+    mut killed_event: EventWriter<PlayerKilledEvent>,
 ) {
     let transform = query.single_mut();
 
@@ -422,7 +421,7 @@ fn player_bounds_check_system(
         let (min_y, max_y) = (-window.height() as f32 / 2.0, window.height() as f32 / 2.0);
 
         if transform.translation.y < min_y || transform.translation.y > max_y {
-            player_event.send(PlayerEvent::Killed);
+            killed_event.send(PlayerKilledEvent);
         }
     }
 }
@@ -431,7 +430,8 @@ fn player_pillar_check_system(
     globals: Res<Globals>,
     mut query: Query<(&Transform, &mut Pillar, &Mover), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
-    mut player_event: EventWriter<PlayerEvent>,
+    mut cross_event: EventWriter<PlayerCrossedPillarEvent>,
+    mut killed_event: EventWriter<PlayerKilledEvent>,
 ) {
     let player_transform = player_query.single();
 
@@ -447,12 +447,12 @@ fn player_pillar_check_system(
                 if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
                     || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
                 {
-                    player_event.send(PlayerEvent::Killed);
+                    killed_event.send(PlayerKilledEvent);
                 // divide by 4.0 => to allow player to score when he reaches 75% across the pillar
                 } else if transform.translation.x < -(PILLAR_WIDTH / 4.0) && !pillar.player_crossed
                 {
                     pillar.player_crossed = true;
-                    player_event.send(PlayerEvent::CrossedPillar);
+                    cross_event.send(PlayerCrossedPillarEvent);
                 }
             }
         });
@@ -593,15 +593,15 @@ fn game_over_ui_update_system(
 fn player_event_audio_system(
     audio: Res<Audio>,
     audio_collection: Res<AudioCollection>,
-    mut events: EventReader<PlayerEvent>,
+    mut crossed_event: EventReader<PlayerCrossedPillarEvent>,
+    mut killed_event: EventReader<PlayerKilledEvent>,
 ) {
-    events.iter().for_each(|event| match event {
-        PlayerEvent::CrossedPillar => {
-            audio.play(audio_collection.crossed.clone());
-        }
-        PlayerEvent::Killed => {
-            audio.play(audio_collection.dead.clone());
-        }
+    crossed_event.iter().for_each(|_| {
+        audio.play(audio_collection.crossed.clone());
+    });
+
+    killed_event.iter().for_each(|_| {
+        audio.play(audio_collection.dead.clone());
     });
 }
 
@@ -625,25 +625,21 @@ fn global_events_update_system(
 }
 
 fn game_over_system(
-    mut events: EventReader<PlayerEvent>,
+    mut killed_events: EventReader<PlayerKilledEvent>,
     mut global_events: EventWriter<GlobalsEvent>,
 ) {
-    events.iter().for_each(|event| {
-        if matches!(event, PlayerEvent::Killed) {
-            update_game_state(GameState::GameOver, &mut global_events);
-        }
+    killed_events.iter().for_each(|_| {
+        update_game_state(GameState::GameOver, &mut global_events);
     });
 }
 
 fn scoring_system(
     globals: Res<Globals>,
-    mut events: EventReader<PlayerEvent>,
+    mut crossed_event: EventReader<PlayerCrossedPillarEvent>,
     mut global_events: EventWriter<GlobalsEvent>,
 ) {
-    events.iter().for_each(|event| {
-        if matches!(event, PlayerEvent::CrossedPillar) {
-            update_global_score(globals.score + 1, &mut global_events);
-        }
+    crossed_event.iter().for_each(|_| {
+        update_global_score(globals.score + 1, &mut global_events);
     });
 }
 
