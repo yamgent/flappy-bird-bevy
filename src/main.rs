@@ -20,7 +20,6 @@ use score::ScorePlugin;
 // TODO: Remove ALL these if possible
 use loading::LoadingAssets;
 use player::PlayerCrossedPillarEvent;
-use score::ResetScoreEvent;
 
 use crate::mover::{Mover, MoverWindowLeftDespawnBound};
 
@@ -314,10 +313,8 @@ fn restart_system(
     game_status: Res<GameState>,
     windows: Res<Windows>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut player_query: Query<(&mut Mover, &mut Transform), With<Player>>,
     mut pillar_query: Query<(&mut Mover, &mut Pillar, &mut Transform), Without<Player>>,
     mut timer: ResMut<PillarSpawnerTimer>,
-    mut reset_score_events: EventWriter<ResetScoreEvent>,
     mut start_new_events: EventWriter<StartNewGameEvent>,
 ) {
     if game_state::is_game_over(&game_status) && keyboard_input.just_pressed(KeyCode::R) {
@@ -325,12 +322,6 @@ fn restart_system(
         let window_width = window.width();
 
         start_new_events.send(StartNewGameEvent);
-        reset_score_events.send(ResetScoreEvent);
-
-        let (mut mover, mut player_transform) = player_query.single_mut();
-
-        player_transform.translation = Vec3::ZERO;
-        mover.velocity = Vec3::ZERO;
 
         pillar_query
             .iter_mut()

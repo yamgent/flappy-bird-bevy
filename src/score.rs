@@ -1,10 +1,10 @@
-use crate::player::PlayerCrossedPillarEvent;
+use crate::{game_state::StartNewGameEvent, player::PlayerCrossedPillarEvent};
 use bevy::prelude::*;
 
 pub struct Score(u32);
 
 pub struct IncreaseScoreEvent;
-pub struct ResetScoreEvent;
+struct ResetScoreEvent;
 pub struct ScoreUpdatedEvent(pub u32);
 
 pub struct ScorePlugin;
@@ -16,6 +16,7 @@ impl Plugin for ScorePlugin {
             .add_event::<ResetScoreEvent>()
             .add_event::<ScoreUpdatedEvent>()
             .add_system(scoring_system)
+            .add_system(new_game_system)
             .add_system(score_event_handler_system);
     }
 }
@@ -27,6 +28,15 @@ fn scoring_system(
     crossed_event.iter().for_each(|_| {
         increase_score_events.send(IncreaseScoreEvent);
     });
+}
+
+fn new_game_system(
+    mut new_game_events: EventReader<StartNewGameEvent>,
+    mut reset_score_event: EventWriter<ResetScoreEvent>,
+) {
+    if new_game_events.iter().count() > 0 {
+        reset_score_event.send(ResetScoreEvent);
+    }
 }
 
 fn score_event_handler_system(

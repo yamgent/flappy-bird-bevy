@@ -1,6 +1,10 @@
 use bevy::prelude::*;
 
-use crate::{game_state::GameState, loading::LoadingAssets, mover::Mover};
+use crate::{
+    game_state::{GameState, StartNewGameEvent},
+    loading::LoadingAssets,
+    mover::Mover,
+};
 
 pub struct PlayerPlugin;
 
@@ -9,6 +13,7 @@ impl Plugin for PlayerPlugin {
         app.add_event::<PlayerCrossedPillarEvent>()
             .add_event::<PlayerKilledEvent>()
             .add_startup_system(setup_player)
+            .add_system(new_game_system)
             .add_system(player_input_system)
             .add_system(player_bounds_check_system);
     }
@@ -72,5 +77,17 @@ fn player_bounds_check_system(
         if transform.translation.y < min_y || transform.translation.y > max_y {
             killed_event.send(PlayerKilledEvent);
         }
+    }
+}
+
+fn new_game_system(
+    mut query: Query<(&mut Transform, &mut Mover), With<Player>>,
+    mut new_game_events: EventReader<StartNewGameEvent>,
+) {
+    if new_game_events.iter().count() > 0 {
+        let (mut transform, mut mover) = query.single_mut();
+
+        transform.translation = Vec3::ZERO;
+        mover.velocity = Vec3::ZERO;
     }
 }
