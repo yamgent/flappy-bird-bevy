@@ -14,7 +14,7 @@ use game_state::{
 use ingame_ui::IngameUiPlugin;
 use loading::LoadingManagerPlugin;
 use mover::MoverPlugin;
-use player::PlayerPlugin;
+use player::{Player, PlayerKilledEvent, PlayerPlugin};
 use score::ScorePlugin;
 
 // TODO: Remove ALL these if possible
@@ -31,12 +31,7 @@ const PLAYER_VISIBLE_HEIGHT: f32 = 46.0;
 
 const NEXT_PILLAR_SPAWN_TIME: f32 = 3.0;
 
-const PLAYER_GRAVITY: f32 = 9.81 * 60.0;
-const LEAP_Y_VELOCITY: f32 = 5.0 * 60.0;
 const PILLAR_SPEED: f32 = 150.0;
-
-#[derive(Component)]
-struct Player;
 
 #[derive(Component)]
 struct GameOverText;
@@ -52,8 +47,6 @@ struct PillarSpawnerTimer(Timer);
 
 #[derive(Component)]
 struct StartScreenText;
-
-struct PlayerKilledEvent;
 
 fn main() {
     App::new()
@@ -71,18 +64,10 @@ fn main() {
             true,
         )))
         .insert_resource(PillarPool(vec![]))
-        .add_event::<PlayerKilledEvent>()
-        .add_system_set(
-            SystemSet::new()
-                .label("input")
-                .before("logic")
-                .with_system(player_input_system),
-        )
         .add_system_set(
             SystemSet::new()
                 .label("logic")
                 .before("events")
-                .with_system(player_bounds_check_system)
                 .with_system(player_pillar_check_system)
                 .with_system(pillar_spawn_system)
                 .with_system(restart_system)
@@ -118,7 +103,6 @@ fn setup(
     commands.spawn_bundle(UiCameraBundle::default());
 
     let background = asset_server.load("background.png");
-    let player = asset_server.load("player.png");
     let font = asset_server.load("FiraSans-Bold.ttf");
     let pillar_top = asset_server.load("pillar_top.png");
     let pillar_bottom = asset_server.load("pillar_bottom.png");
@@ -131,18 +115,6 @@ fn setup(
         },
         ..Default::default()
     });
-
-    commands
-        .spawn_bundle(SpriteBundle {
-            texture: player.clone(),
-            ..Default::default()
-        })
-        .insert(Player)
-        .insert(Mover {
-            active: true,
-            velocity: Vec3::ZERO,
-            acceleration: Vec3::new(0.0, -PLAYER_GRAVITY, 0.0),
-        });
 
     commands
         .spawn_bundle(TextBundle {
@@ -265,40 +237,8 @@ fn setup(
     }));
 
     loading.0.push(background.clone_untyped());
-    loading.0.push(player.clone_untyped());
     loading.0.push(pillar_top.clone_untyped());
     loading.0.push(pillar_bottom.clone_untyped());
-}
-
-fn player_input_system(
-    game_status: Res<GameState>,
-    keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<&mut Mover, With<Player>>,
-) {
-    let mut mover = query.single_mut();
-
-    if game_state::is_playing(&game_status) && keyboard_input.just_pressed(KeyCode::Space) {
-        mover.velocity.y = LEAP_Y_VELOCITY;
-    }
-}
-
-fn player_bounds_check_system(
-    windows: Res<Windows>,
-    game_status: Res<GameState>,
-    mut query: Query<&Transform, With<Player>>,
-    mut killed_event: EventWriter<PlayerKilledEvent>,
-) {
-    let transform = query.single_mut();
-
-    if game_state::is_playing(&game_status) {
-        let window = windows.get_primary().unwrap();
-
-        let (min_y, max_y) = (-window.height() as f32 / 2.0, window.height() as f32 / 2.0);
-
-        if transform.translation.y < min_y || transform.translation.y > max_y {
-            killed_event.send(PlayerKilledEvent);
-        }
-    }
 }
 
 fn player_pillar_check_system(
