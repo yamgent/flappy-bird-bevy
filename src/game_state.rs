@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{loading::FinishLoadingEvent, PlayerKilledEvent};
+use crate::{loading::FinishLoadingEvent, player::PlayerKilledEvent};
 
 pub struct GameStatePlugin;
 

@@ -1,4 +1,7 @@
-use crate::{loading::LoadingAssets, player::PlayerCrossedPillarEvent, PlayerKilledEvent};
+use crate::{
+    loading::LoadingAssets,
+    player::{PlayerCrossedPillarEvent, PlayerKilledEvent},
+};
 use bevy::prelude::*;
 use bevy_kira_audio::{Audio, AudioPlugin, AudioSource};
 

@@ -16,7 +16,7 @@ use ingame_ui::IngameUiPlugin;
 use loading::LoadingManagerPlugin;
 use mover::MoverPlugin;
 use pillars::PillarsPlugin;
-use player::{PlayerKilledEvent, PlayerPlugin};
+use player::PlayerPlugin;
 use score::ScorePlugin;
 
 // TODO: Remove ALL these if possible
