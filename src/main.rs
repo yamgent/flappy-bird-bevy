@@ -1,4 +1,5 @@
 mod audio;
+mod background;
 mod game_state;
 mod ingame_ui;
 mod loading;
@@ -10,6 +11,7 @@ mod screen_end;
 mod screen_start;
 
 use audio::GameAudioPlugin;
+use background::BackgroundPlugin;
 use bevy::prelude::*;
 use game_state::GameStatePlugin;
 use ingame_ui::IngameUiPlugin;
@@ -20,9 +22,6 @@ use player::PlayerPlugin;
 use score::ScorePlugin;
 use screen_end::ScreenEndPlugin;
 use screen_start::ScreenStartPlugin;
-
-// TODO: Remove ALL these if possible
-use loading::LoadingAssets;
 
 #[derive(Component)]
 struct GameOverText;
@@ -40,16 +39,12 @@ fn main() {
         .add_plugin(PillarsPlugin)
         .add_plugin(ScreenStartPlugin)
         .add_plugin(ScreenEndPlugin)
+        .add_plugin(BackgroundPlugin)
         .add_startup_system(setup)
         .run();
 }
 
-fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut windows: ResMut<Windows>,
-    mut loading: ResMut<LoadingAssets>,
-) {
+fn setup(mut commands: Commands, mut windows: ResMut<Windows>) {
     let window = windows.get_primary_mut().unwrap();
     window.set_resizable(false);
 
@@ -63,17 +58,4 @@ fn setup(
 
     commands.spawn_bundle(camera_bundle);
     commands.spawn_bundle(UiCameraBundle::default());
-
-    let background = asset_server.load("background.png");
-
-    commands.spawn_bundle(SpriteBundle {
-        texture: background.clone(),
-        transform: Transform {
-            translation: Vec3::new(0.0, 0.0, -1.0),
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-
-    loading.0.push(background.clone_untyped());
 }
