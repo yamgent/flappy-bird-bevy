@@ -8,20 +8,30 @@ const PLAYER_VISIBLE_HEIGHT: f32 = 46.0;
 
 const NEXT_PILLAR_SPAWN_TIME: f32 = 3.0;
 
-const GRAVITY: f32 = 9.81;
-const LEAP_Y_VELOCITY: f32 = 5.0;
+const PLAYER_GRAVITY: f32 = 9.81 * 60.0;
+const LEAP_Y_VELOCITY: f32 = 5.0 * 60.0;
+const PILLAR_SPEED: f32 = 150.0;
 
 #[derive(Component)]
-struct Player {
-    y_velocity: f32,
+struct Mover {
+    active: bool,
+    velocity: Vec3,
+    acceleration: Vec3,
 }
+
+#[derive(Component)]
+struct MoverWindowLeftDespawnBound {
+    object_width: f32,
+}
+
+#[derive(Component)]
+struct Player;
 
 #[derive(Component)]
 struct GameOverText;
 
 #[derive(Component)]
 struct Pillar {
-    active: bool,
     player_crossed: bool,
 }
 
@@ -76,15 +86,21 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .label("input")
+                .before("physics")
+                .with_system(mover_system)
+                .with_system(mover_window_left_despawn_bound_system),
+        )
+        .add_system_set(
+            SystemSet::new()
+                .label("physics")
                 .before("logic")
                 .with_system(player_input_system),
         )
         .add_system_set(
             SystemSet::new()
                 .label("logic")
-                .with_system(player_physics_system)
+                .before("events")
                 .with_system(player_bounds_check_system)
-                .with_system(pillar_movement_system)
                 .with_system(player_pillar_check_system)
                 .with_system(pillar_spawn_system)
                 .with_system(restart_system)
@@ -94,7 +110,6 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .label("events")
-                .after("logic")
                 .with_system(game_state_event_system),
         )
         .run();
@@ -143,7 +158,12 @@ fn setup(
             texture: player.clone(),
             ..Default::default()
         })
-        .insert(Player { y_velocity: 0.0 });
+        .insert(Player)
+        .insert(Mover {
+            active: true,
+            velocity: Vec3::ZERO,
+            acceleration: Vec3::new(0.0, -PLAYER_GRAVITY, 0.0),
+        });
 
     commands
         .spawn_bundle(TextBundle {
@@ -257,7 +277,6 @@ fn setup(
         commands
             .spawn()
             .insert(Pillar {
-                active: false,
                 player_crossed: false,
             })
             .insert(Transform {
@@ -266,6 +285,14 @@ fn setup(
             })
             .insert(GlobalTransform {
                 ..Default::default()
+            })
+            .insert(Mover {
+                active: false,
+                velocity: Vec3::new(-PILLAR_SPEED, 0.0, 0.0),
+                acceleration: Vec3::ZERO,
+            })
+            .insert(MoverWindowLeftDespawnBound {
+                object_width: PILLAR_WIDTH,
             })
             .with_children(|parent| {
                 parent.spawn_bundle(SpriteBundle {
@@ -311,31 +338,64 @@ fn setup(
     loading.0.push(dead.clone_untyped());
 }
 
+fn mover_system(
+    globals: Res<Globals>,
+    windows: Res<Windows>,
+    time: Res<Time>,
+    mut query: Query<(&mut Mover, &mut Transform)>,
+) {
+    let window = windows.get_primary().unwrap();
+    let window_width = window.width();
+
+    // TODO: Is the coupling with game_state reasonable?
+    if matches!(globals.game_state, GameState::Playing) {
+        query.iter_mut().for_each(|(mut mover, mut transform)| {
+            if mover.active {
+                let increment = mover.acceleration * time.delta().as_secs_f32();
+                mover.velocity += increment;
+                transform.translation += mover.velocity * time.delta().as_secs_f32();
+            } else {
+                // hack to avoid dealing with visibility
+                // (have to modify children which is troublesome...)
+                transform.translation.x = window_width;
+            }
+        });
+    }
+}
+
+fn mover_window_left_despawn_bound_system(
+    globals: Res<Globals>,
+    windows: Res<Windows>,
+    mut query: Query<(&MoverWindowLeftDespawnBound, &mut Mover, &Transform)>,
+) {
+    let window = windows.get_primary().unwrap();
+    let window_width = window.width() as f32;
+
+    if matches!(globals.game_state, GameState::Playing) {
+        query
+            .iter_mut()
+            .for_each(|(mover_window_bound, mut mover, transform)| {
+                if mover.active
+                    && transform.translation.x
+                        < (-window_width / 2.0) - (mover_window_bound.object_width / 2.0)
+                {
+                    mover.active = false;
+                }
+            });
+    }
+}
+
 fn player_input_system(
     globals: Res<Globals>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<&mut Player>,
+    mut query: Query<&mut Mover, With<Player>>,
 ) {
-    let mut player = query.single_mut();
+    let mut mover = query.single_mut();
 
     if matches!(globals.game_state, GameState::Playing)
         && keyboard_input.just_pressed(KeyCode::Space)
     {
-        player.y_velocity = LEAP_Y_VELOCITY;
-    }
-}
-
-fn player_physics_system(
-    globals: Res<Globals>,
-    time: Res<Time>,
-    mut query: Query<(&mut Player, &mut Transform)>,
-) {
-    let (mut player, mut transform) = query.single_mut();
-
-    if matches!(globals.game_state, GameState::Playing) {
-        player.y_velocity -= time.delta().as_secs_f32() * GRAVITY;
-
-        transform.translation.y += player.y_velocity;
+        mover.velocity.y = LEAP_Y_VELOCITY;
     }
 }
 
@@ -361,37 +421,9 @@ fn player_bounds_check_system(
     }
 }
 
-fn pillar_movement_system(
-    globals: ResMut<Globals>,
-    windows: Res<Windows>,
-    time: Res<Time>,
-    mut query: Query<(&mut Transform, &mut Pillar)>,
-) {
-    let window = windows.get_primary().unwrap();
-    let window_width = window.width() as f32;
-
-    if matches!(globals.game_state, GameState::Playing) {
-        query.iter_mut().for_each(|(mut transform, mut pillar)| {
-            if pillar.active {
-                transform.translation.x -= time.delta().as_secs_f32() * 150.0;
-
-                if transform.translation.x < (-window_width / 2.0) - PILLAR_WIDTH {
-                    pillar.active = false;
-                    pillar.player_crossed = false;
-                }
-            }
-
-            if !pillar.active {
-                // move it out of the viewport
-                transform.translation.x = window_width;
-            }
-        });
-    }
-}
-
 fn player_pillar_check_system(
     mut globals: ResMut<Globals>,
-    mut query: Query<(&Transform, &mut Pillar), Without<Player>>,
+    mut query: Query<(&Transform, &mut Pillar, &Mover), Without<Player>>,
     player_query: Query<&Transform, With<Player>>,
     audio: Res<Audio>,
     audio_collection: Res<AudioCollection>,
@@ -400,8 +432,8 @@ fn player_pillar_check_system(
     let player_transform = player_query.single();
 
     if matches!(globals.game_state, GameState::Playing) {
-        query.iter_mut().for_each(|(transform, mut pillar)| {
-            if pillar.active
+        query.iter_mut().for_each(|(transform, mut pillar, mover)| {
+            if mover.active
                 && transform.translation.x <= (PILLAR_WIDTH / 2.0)
                 && transform.translation.x >= -(PILLAR_WIDTH / 2.0)
             {
@@ -431,7 +463,7 @@ fn pillar_spawn_system(
     globals: Res<Globals>,
     mut timer: ResMut<PillarSpawnerTimer>,
     pillar_pools: Res<PillarPool>,
-    mut pillar_query: Query<(&mut Pillar, &mut Transform)>,
+    mut pillar_query: Query<(&mut Pillar, &mut Transform, &mut Mover)>,
 ) {
     if matches!(globals.game_state, GameState::Playing)
         && timer.0.tick(time.delta()).just_finished()
@@ -443,11 +475,11 @@ fn pillar_spawn_system(
         let mut found = false;
 
         for child in pillar_pools.0.iter() {
-            let (mut pillar, mut transform) = pillar_query.get_mut(*child).unwrap();
-            if !pillar.active {
+            let (mut pillar, mut transform, mut mover) = pillar_query.get_mut(*child).unwrap();
+            if !mover.active {
                 let gap_y = ((rand::random::<f32>() - 0.5) * 2.0) * ((window_height - 100.0) / 2.0);
 
-                pillar.active = true;
+                mover.active = true;
                 pillar.player_crossed = false;
                 transform.translation.x = (window_width / 2.0) + (PILLAR_WIDTH / 2.0);
                 transform.translation.y = gap_y;
@@ -466,8 +498,8 @@ fn pillar_spawn_system(
 fn restart_system(
     mut globals: ResMut<Globals>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut player_query: Query<(&mut Player, &mut Transform)>,
-    mut pillar_query: Query<&mut Pillar>,
+    mut player_query: Query<(&mut Mover, &mut Transform), With<Player>>,
+    mut pillar_query: Query<(&mut Mover, &mut Pillar), Without<Player>>,
     mut timer: ResMut<PillarSpawnerTimer>,
     mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
 ) {
@@ -476,13 +508,13 @@ fn restart_system(
         change_game_state_event.send(ChangeGameStateEvent(GameState::Playing));
         globals.score = 0;
 
-        let (mut player, mut player_transform) = player_query.single_mut();
+        let (mut mover, mut player_transform) = player_query.single_mut();
 
         player_transform.translation = Vec3::ZERO;
-        player.y_velocity = 0.0;
+        mover.velocity = Vec3::ZERO;
 
-        pillar_query.iter_mut().for_each(|mut pillar| {
-            pillar.active = false;
+        pillar_query.iter_mut().for_each(|(mut mover, mut pillar)| {
+            mover.active = false;
             pillar.player_crossed = false;
         });
 
