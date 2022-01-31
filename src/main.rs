@@ -75,9 +75,17 @@ fn main() {
         .add_event::<ChangeGameStateEvent>()
         .add_system_set(
             SystemSet::new()
+                .label("input")
+                .before("logic")
+                .with_system(player_input_system),
+        )
+        .add_system_set(
+            SystemSet::new()
                 .label("logic")
-                .with_system(player_gravity_system)
+                .with_system(player_physics_system)
+                .with_system(player_bounds_check_system)
                 .with_system(pillar_movement_system)
+                .with_system(player_pillar_check_system)
                 .with_system(pillar_spawn_system)
                 .with_system(restart_system)
                 .with_system(main_ui_system)
@@ -303,27 +311,45 @@ fn setup(
     loading.0.push(dead.clone_untyped());
 }
 
-fn player_gravity_system(
-    windows: Res<Windows>,
-    time: Res<Time>,
+fn player_input_system(
     globals: Res<Globals>,
     keyboard_input: Res<Input<KeyCode>>,
+    mut query: Query<&mut Player>,
+) {
+    let mut player = query.single_mut();
+
+    if matches!(globals.game_state, GameState::Playing)
+        && keyboard_input.just_pressed(KeyCode::Space)
+    {
+        player.y_velocity = LEAP_Y_VELOCITY;
+    }
+}
+
+fn player_physics_system(
+    globals: Res<Globals>,
+    time: Res<Time>,
     mut query: Query<(&mut Player, &mut Transform)>,
-    audio: Res<Audio>,
-    audio_collection: Res<AudioCollection>,
-    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
 ) {
     let (mut player, mut transform) = query.single_mut();
 
     if matches!(globals.game_state, GameState::Playing) {
-        if keyboard_input.just_pressed(KeyCode::Space) {
-            player.y_velocity = LEAP_Y_VELOCITY;
-        } else {
-            player.y_velocity -= time.delta().as_secs_f32() * GRAVITY;
-        }
+        player.y_velocity -= time.delta().as_secs_f32() * GRAVITY;
 
         transform.translation.y += player.y_velocity;
+    }
+}
 
+fn player_bounds_check_system(
+    windows: Res<Windows>,
+    globals: Res<Globals>,
+    mut query: Query<&Transform, With<Player>>,
+    audio: Res<Audio>,
+    audio_collection: Res<AudioCollection>,
+    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
+) {
+    let transform = query.single_mut();
+
+    if matches!(globals.game_state, GameState::Playing) {
         let window = windows.get_primary().unwrap();
 
         let (min_y, max_y) = (-window.height() as f32 / 2.0, window.height() as f32 / 2.0);
@@ -336,46 +362,20 @@ fn player_gravity_system(
 }
 
 fn pillar_movement_system(
+    globals: ResMut<Globals>,
     windows: Res<Windows>,
     time: Res<Time>,
-    mut globals: ResMut<Globals>,
-    mut query: Query<(&mut Transform, &mut Pillar), Without<Player>>,
-    player_query: Query<&Transform, With<Player>>,
-    audio: Res<Audio>,
-    audio_collection: Res<AudioCollection>,
-    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
+    mut query: Query<(&mut Transform, &mut Pillar)>,
 ) {
     let window = windows.get_primary().unwrap();
     let window_width = window.width() as f32;
-
-    let player_transform = player_query.single();
 
     if matches!(globals.game_state, GameState::Playing) {
         query.iter_mut().for_each(|(mut transform, mut pillar)| {
             if pillar.active {
                 transform.translation.x -= time.delta().as_secs_f32() * 150.0;
 
-                if transform.translation.x <= (PILLAR_WIDTH / 2.0)
-                    && transform.translation.x >= -(PILLAR_WIDTH / 2.0)
-                {
-                    let top = PILLAR_GAP / 2.0 + transform.translation.y;
-                    let bottom = -PILLAR_GAP / 2.0 + transform.translation.y;
-
-                    if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
-                        || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
-                    {
-                        change_game_state_event.send(ChangeGameStateEvent(GameState::GameOver));
-
-                        audio.play(audio_collection.dead.clone());
-                    // divide by 4.0 => to allow player to score when he reaches 75% across the pillar
-                    } else if transform.translation.x < -(PILLAR_WIDTH / 4.0)
-                        && !pillar.player_crossed
-                    {
-                        pillar.player_crossed = true;
-                        audio.play(audio_collection.crossed.clone());
-                        globals.score += 1;
-                    }
-                } else if transform.translation.x < (-window_width / 2.0) - PILLAR_WIDTH {
+                if transform.translation.x < (-window_width / 2.0) - PILLAR_WIDTH {
                     pillar.active = false;
                     pillar.player_crossed = false;
                 }
@@ -384,6 +384,42 @@ fn pillar_movement_system(
             if !pillar.active {
                 // move it out of the viewport
                 transform.translation.x = window_width;
+            }
+        });
+    }
+}
+
+fn player_pillar_check_system(
+    mut globals: ResMut<Globals>,
+    mut query: Query<(&Transform, &mut Pillar), Without<Player>>,
+    player_query: Query<&Transform, With<Player>>,
+    audio: Res<Audio>,
+    audio_collection: Res<AudioCollection>,
+    mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
+) {
+    let player_transform = player_query.single();
+
+    if matches!(globals.game_state, GameState::Playing) {
+        query.iter_mut().for_each(|(transform, mut pillar)| {
+            if pillar.active
+                && transform.translation.x <= (PILLAR_WIDTH / 2.0)
+                && transform.translation.x >= -(PILLAR_WIDTH / 2.0)
+            {
+                let top = PILLAR_GAP / 2.0 + transform.translation.y;
+                let bottom = -PILLAR_GAP / 2.0 + transform.translation.y;
+
+                if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
+                    || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
+                {
+                    change_game_state_event.send(ChangeGameStateEvent(GameState::GameOver));
+                    audio.play(audio_collection.dead.clone());
+                // divide by 4.0 => to allow player to score when he reaches 75% across the pillar
+                } else if transform.translation.x < -(PILLAR_WIDTH / 4.0) && !pillar.player_crossed
+                {
+                    pillar.player_crossed = true;
+                    audio.play(audio_collection.crossed.clone());
+                    globals.score += 1;
+                }
             }
         });
     }
