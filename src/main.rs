@@ -69,9 +69,12 @@ struct PlayerCrossedPillarEvent;
 struct PlayerKilledEvent;
 
 enum GlobalsEvent {
-    ScoreUpdated(u32),
     GameStateChanged(GameState),
 }
+
+struct IncreaseScoreEvent;
+struct ScoreUpdatedEvent(u32);
+struct ResetScoreEvent;
 
 fn main() {
     App::new()
@@ -90,6 +93,9 @@ fn main() {
         .insert_resource(PillarPool(vec![]))
         .add_event::<PlayerCrossedPillarEvent>()
         .add_event::<PlayerKilledEvent>()
+        .add_event::<IncreaseScoreEvent>()
+        .add_event::<ScoreUpdatedEvent>()
+        .add_event::<ResetScoreEvent>()
         .add_event::<GlobalsEvent>()
         .add_system_set(
             SystemSet::new()
@@ -505,6 +511,7 @@ fn restart_system(
     mut pillar_query: Query<(&mut Mover, &mut Pillar, &mut Transform), Without<Player>>,
     mut timer: ResMut<PillarSpawnerTimer>,
     mut global_events: EventWriter<GlobalsEvent>,
+    mut reset_score_events: EventWriter<ResetScoreEvent>,
 ) {
     if matches!(globals.game_state, GameState::GameOver) && keyboard_input.just_pressed(KeyCode::R)
     {
@@ -512,7 +519,7 @@ fn restart_system(
         let window_width = window.width();
 
         update_game_state(GameState::Playing, &mut global_events);
-        update_global_score(0, &mut global_events);
+        reset_score_events.send(ResetScoreEvent);
 
         let (mut mover, mut player_transform) = player_query.single_mut();
 
@@ -605,11 +612,6 @@ fn player_event_audio_system(
     });
 }
 
-// helper method for Globals
-fn update_global_score(new_score: u32, global_events: &mut EventWriter<GlobalsEvent>) {
-    global_events.send(GlobalsEvent::ScoreUpdated(new_score));
-}
-
 fn update_game_state(new_state: GameState, global_events: &mut EventWriter<GlobalsEvent>) {
     global_events.send(GlobalsEvent::GameStateChanged(new_state));
 }
@@ -617,9 +619,25 @@ fn update_game_state(new_state: GameState, global_events: &mut EventWriter<Globa
 fn global_events_update_system(
     mut globals: ResMut<Globals>,
     mut events: EventReader<GlobalsEvent>,
+    mut increase_score_events: EventReader<IncreaseScoreEvent>,
+    mut reset_score_events: EventReader<ResetScoreEvent>,
+    mut score_updated_events: EventWriter<ScoreUpdatedEvent>,
 ) {
+    let old_score = globals.score;
+
+    increase_score_events.iter().for_each(|_| {
+        globals.score += 1;
+    });
+
+    reset_score_events.iter().for_each(|_| {
+        globals.score = 0;
+    });
+
+    if old_score != globals.score {
+        score_updated_events.send(ScoreUpdatedEvent(globals.score));
+    }
+
     events.iter().for_each(|event| match event {
-        GlobalsEvent::ScoreUpdated(score) => globals.score = *score,
         GlobalsEvent::GameStateChanged(game_state) => globals.game_state = *game_state,
     })
 }
@@ -634,23 +652,21 @@ fn game_over_system(
 }
 
 fn scoring_system(
-    globals: Res<Globals>,
     mut crossed_event: EventReader<PlayerCrossedPillarEvent>,
-    mut global_events: EventWriter<GlobalsEvent>,
+    mut increase_score_events: EventWriter<IncreaseScoreEvent>,
 ) {
     crossed_event.iter().for_each(|_| {
-        update_global_score(globals.score + 1, &mut global_events);
+        increase_score_events.send(IncreaseScoreEvent);
     });
 }
 
 fn score_ui_update_system(
-    mut global_events: EventReader<GlobalsEvent>,
     mut query: Query<&mut Text, With<ScoreText>>,
+    mut score_updated_events: EventReader<ScoreUpdatedEvent>,
 ) {
-    global_events.iter().for_each(|event| {
-        if let GlobalsEvent::ScoreUpdated(score) = event {
-            let mut text = query.single_mut();
-            text.sections[1].value = score.to_string();
-        }
+    let mut text = query.single_mut();
+
+    score_updated_events.iter().for_each(|event| {
+        text.sections[1].value = event.0.to_string();
     });
 }
