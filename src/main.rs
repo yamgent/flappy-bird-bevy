@@ -25,9 +25,6 @@ use score::ScorePlugin;
 use screen_end::ScreenEndPlugin;
 use screen_start::ScreenStartPlugin;
 
-#[derive(Component)]
-struct GameOverText;
-
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
