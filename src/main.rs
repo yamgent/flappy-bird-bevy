@@ -49,8 +49,9 @@ enum GameState {
 
 struct Globals {
     game_state: GameState,
-    score: u32,
 }
+
+struct Score(u32);
 
 #[derive(Component)]
 struct ScoreText;
@@ -86,9 +87,9 @@ fn main() {
             NEXT_PILLAR_SPAWN_TIME,
             true,
         )))
+        .insert_resource(Score(0))
         .insert_resource(Globals {
             game_state: GameState::Loading,
-            score: 0,
         })
         .insert_resource(PillarPool(vec![]))
         .add_event::<PlayerCrossedPillarEvent>()
@@ -123,6 +124,7 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .label("events")
+                .with_system(score_event_handler_system)
                 .with_system(game_over_ui_update_system)
                 .with_system(game_over_system)
                 .with_system(player_event_audio_system)
@@ -616,27 +618,31 @@ fn update_game_state(new_state: GameState, global_events: &mut EventWriter<Globa
     global_events.send(GlobalsEvent::GameStateChanged(new_state));
 }
 
-fn global_events_update_system(
-    mut globals: ResMut<Globals>,
-    mut events: EventReader<GlobalsEvent>,
+fn score_event_handler_system(
+    mut score: ResMut<Score>,
     mut increase_score_events: EventReader<IncreaseScoreEvent>,
     mut reset_score_events: EventReader<ResetScoreEvent>,
     mut score_updated_events: EventWriter<ScoreUpdatedEvent>,
 ) {
-    let old_score = globals.score;
+    let old_score = score.0;
 
     increase_score_events.iter().for_each(|_| {
-        globals.score += 1;
+        score.0 += 1;
     });
 
     reset_score_events.iter().for_each(|_| {
-        globals.score = 0;
+        score.0 = 0;
     });
 
-    if old_score != globals.score {
-        score_updated_events.send(ScoreUpdatedEvent(globals.score));
+    if old_score != score.0 {
+        score_updated_events.send(ScoreUpdatedEvent(score.0));
     }
+}
 
+fn global_events_update_system(
+    mut globals: ResMut<Globals>,
+    mut events: EventReader<GlobalsEvent>,
+) {
     events.iter().for_each(|event| match event {
         GlobalsEvent::GameStateChanged(game_state) => globals.game_state = *game_state,
     })
