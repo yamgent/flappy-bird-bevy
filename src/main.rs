@@ -73,7 +73,7 @@ enum PlayerEvent {
 }
 
 enum GlobalsEvent {
-    ScoreUpdated,
+    ScoreUpdated(u32),
 }
 
 fn main() {
@@ -123,7 +123,8 @@ fn main() {
                 .with_system(game_state_event_system)
                 .with_system(player_event_audio_system)
                 .with_system(scoring_system)
-                .with_system(score_ui_update_system),
+                .with_system(score_ui_update_system)
+                .with_system(global_events_update_system),
         )
         .run();
 }
@@ -610,43 +611,46 @@ fn player_event_audio_system(
 }
 
 // helper method for Globals
-fn update_global_score(
-    new_score: u32,
-    globals: &mut ResMut<Globals>,
-    global_events: &mut EventWriter<GlobalsEvent>,
+fn update_global_score(new_score: u32, global_events: &mut EventWriter<GlobalsEvent>) {
+    global_events.send(GlobalsEvent::ScoreUpdated(new_score));
+}
+
+fn global_events_update_system(
+    mut globals: ResMut<Globals>,
+    mut events: EventReader<GlobalsEvent>,
 ) {
-    globals.score = new_score;
-    global_events.send(GlobalsEvent::ScoreUpdated);
+    events.iter().for_each(|event| match event {
+        GlobalsEvent::ScoreUpdated(score) => globals.score = *score,
+    })
 }
 
 fn scoring_system(
-    mut globals: ResMut<Globals>,
+    globals: Res<Globals>,
     mut events: EventReader<PlayerEvent>,
     mut global_events: EventWriter<GlobalsEvent>,
     mut change_game_state_event: EventReader<ChangeGameStateEvent>,
 ) {
     events.iter().for_each(|event| {
         if matches!(event, PlayerEvent::CrossedPillar) {
-            update_global_score(globals.score + 1, &mut globals, &mut global_events);
+            update_global_score(globals.score + 1, &mut global_events);
         }
     });
 
     change_game_state_event.iter().for_each(|event| {
         if matches!(event.0, GameState::Playing) {
-            update_global_score(0, &mut globals, &mut global_events);
+            update_global_score(0, &mut global_events);
         }
     });
 }
 
 fn score_ui_update_system(
-    globals: Res<Globals>,
     mut global_events: EventReader<GlobalsEvent>,
     mut query: Query<&mut Text, With<ScoreText>>,
 ) {
     global_events.iter().for_each(|event| {
-        if matches!(event, GlobalsEvent::ScoreUpdated) {
+        if let GlobalsEvent::ScoreUpdated(score) = event {
             let mut text = query.single_mut();
-            text.sections[1].value = globals.score.to_string();
+            text.sections[1].value = score.to_string();
         }
     });
 }
