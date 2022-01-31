@@ -3,6 +3,7 @@ mod game_state;
 mod ingame_ui;
 mod loading;
 mod mover;
+mod pillars;
 mod player;
 mod score;
 
@@ -14,35 +15,15 @@ use game_state::{
 use ingame_ui::IngameUiPlugin;
 use loading::LoadingManagerPlugin;
 use mover::MoverPlugin;
-use player::{Player, PlayerKilledEvent, PlayerPlugin};
+use pillars::PillarsPlugin;
+use player::{PlayerKilledEvent, PlayerPlugin};
 use score::ScorePlugin;
 
 // TODO: Remove ALL these if possible
 use loading::LoadingAssets;
-use player::PlayerCrossedPillarEvent;
-
-use crate::mover::{Mover, MoverWindowLeftDespawnBound};
-
-const PILLAR_GAP: f32 = 150.0;
-const PILLAR_HEIGHT: f32 = 1024.0;
-const PILLAR_WIDTH: f32 = 128.0;
-const PLAYER_VISIBLE_HEIGHT: f32 = 46.0;
-
-const NEXT_PILLAR_SPAWN_TIME: f32 = 3.0;
-
-const PILLAR_SPEED: f32 = 150.0;
 
 #[derive(Component)]
 struct GameOverText;
-
-#[derive(Component)]
-struct Pillar {
-    player_crossed: bool,
-}
-
-struct PillarPool(Vec<Entity>);
-
-struct PillarSpawnerTimer(Timer);
 
 #[derive(Component)]
 struct StartScreenText;
@@ -57,18 +38,12 @@ fn main() {
         .add_plugin(LoadingManagerPlugin)
         .add_plugin(IngameUiPlugin)
         .add_plugin(MoverPlugin)
+        .add_plugin(PillarsPlugin)
         .add_startup_system(setup)
-        .insert_resource(PillarSpawnerTimer(Timer::from_seconds(
-            NEXT_PILLAR_SPAWN_TIME,
-            true,
-        )))
-        .insert_resource(PillarPool(vec![]))
         .add_system_set(
             SystemSet::new()
                 .label("logic")
                 .before("events")
-                .with_system(player_pillar_check_system)
-                .with_system(pillar_spawn_system)
                 .with_system(restart_system)
                 .with_system(start_screen_ui_system),
         )
@@ -85,7 +60,6 @@ fn setup(
     asset_server: Res<AssetServer>,
     mut windows: ResMut<Windows>,
     mut loading: ResMut<LoadingAssets>,
-    mut pillar_pools: ResMut<PillarPool>,
 ) {
     let window = windows.get_primary_mut().unwrap();
     window.set_resizable(false);
@@ -103,8 +77,6 @@ fn setup(
 
     let background = asset_server.load("background.png");
     let font = asset_server.load("FiraSans-Bold.ttf");
-    let pillar_top = asset_server.load("pillar_top.png");
-    let pillar_bottom = asset_server.load("pillar_bottom.png");
 
     commands.spawn_bundle(SpriteBundle {
         texture: background.clone(),
@@ -184,157 +156,16 @@ fn setup(
         })
         .insert(GameOverText);
 
-    pillar_pools.0.extend((0..10).map(|_| {
-        commands
-            .spawn()
-            .insert(Pillar {
-                player_crossed: false,
-            })
-            .insert(Transform {
-                translation: Vec3::new(window.width(), 0.0, 0.0),
-                ..Default::default()
-            })
-            .insert(GlobalTransform {
-                ..Default::default()
-            })
-            .insert(Mover {
-                active: false,
-                velocity: Vec3::new(-PILLAR_SPEED, 0.0, 0.0),
-                acceleration: Vec3::ZERO,
-            })
-            .insert(MoverWindowLeftDespawnBound {
-                object_width: PILLAR_WIDTH,
-            })
-            .with_children(|parent| {
-                parent.spawn_bundle(SpriteBundle {
-                    texture: pillar_top.clone(),
-                    transform: Transform {
-                        translation: Vec3::new(
-                            0.0,
-                            (PILLAR_HEIGHT / 2.0) + (PILLAR_GAP / 2.0),
-                            0.0,
-                        ),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                });
-
-                parent.spawn_bundle(SpriteBundle {
-                    texture: pillar_bottom.clone(),
-                    transform: Transform {
-                        translation: Vec3::new(
-                            0.0,
-                            -(PILLAR_HEIGHT / 2.0) - (PILLAR_GAP / 2.0),
-                            0.0,
-                        ),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                });
-            })
-            .id()
-    }));
-
     loading.0.push(background.clone_untyped());
-    loading.0.push(pillar_top.clone_untyped());
-    loading.0.push(pillar_bottom.clone_untyped());
-}
-
-fn player_pillar_check_system(
-    game_status: Res<GameState>,
-    mut query: Query<(&Transform, &mut Pillar, &Mover), Without<Player>>,
-    player_query: Query<&Transform, With<Player>>,
-    mut cross_event: EventWriter<PlayerCrossedPillarEvent>,
-    mut killed_event: EventWriter<PlayerKilledEvent>,
-) {
-    let player_transform = player_query.single();
-
-    if game_state::is_playing(&game_status) {
-        query.iter_mut().for_each(|(transform, mut pillar, mover)| {
-            if mover.active
-                && transform.translation.x <= (PILLAR_WIDTH / 2.0)
-                && transform.translation.x >= -(PILLAR_WIDTH / 2.0)
-            {
-                let top = PILLAR_GAP / 2.0 + transform.translation.y;
-                let bottom = -PILLAR_GAP / 2.0 + transform.translation.y;
-
-                if player_transform.translation.y > top - (PLAYER_VISIBLE_HEIGHT / 2.0)
-                    || player_transform.translation.y < bottom + (PLAYER_VISIBLE_HEIGHT / 2.0)
-                {
-                    killed_event.send(PlayerKilledEvent);
-                // divide by 4.0 => to allow player to score when he reaches 75% across the pillar
-                } else if transform.translation.x < -(PILLAR_WIDTH / 4.0) && !pillar.player_crossed
-                {
-                    pillar.player_crossed = true;
-                    cross_event.send(PlayerCrossedPillarEvent);
-                }
-            }
-        });
-    }
-}
-
-fn pillar_spawn_system(
-    windows: Res<Windows>,
-    time: Res<Time>,
-    game_status: Res<GameState>,
-    mut timer: ResMut<PillarSpawnerTimer>,
-    pillar_pools: Res<PillarPool>,
-    mut pillar_query: Query<(&mut Pillar, &mut Transform, &mut Mover)>,
-) {
-    if game_state::is_playing(&game_status) && timer.0.tick(time.delta()).just_finished() {
-        let window = windows.get_primary().unwrap();
-        let window_width = window.width() as f32;
-        let window_height = window.height() as f32;
-
-        let mut found = false;
-
-        for child in pillar_pools.0.iter() {
-            let (mut pillar, mut transform, mut mover) = pillar_query.get_mut(*child).unwrap();
-            if !mover.active {
-                let gap_y = ((rand::random::<f32>() - 0.5) * 2.0) * ((window_height - 100.0) / 2.0);
-
-                mover.active = true;
-                pillar.player_crossed = false;
-                transform.translation.x = (window_width / 2.0) + (PILLAR_WIDTH / 2.0);
-                transform.translation.y = gap_y;
-
-                found = true;
-                break;
-            }
-        }
-
-        if !found {
-            eprintln!("Exhausted pillars in pool");
-        }
-    }
 }
 
 fn restart_system(
     game_status: Res<GameState>,
-    windows: Res<Windows>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut pillar_query: Query<(&mut Mover, &mut Pillar, &mut Transform), Without<Player>>,
-    mut timer: ResMut<PillarSpawnerTimer>,
     mut start_new_events: EventWriter<StartNewGameEvent>,
 ) {
     if game_state::is_game_over(&game_status) && keyboard_input.just_pressed(KeyCode::R) {
-        let window = windows.get_primary().unwrap();
-        let window_width = window.width();
-
         start_new_events.send(StartNewGameEvent);
-
-        pillar_query
-            .iter_mut()
-            .for_each(|(mut mover, mut pillar, mut transform)| {
-                mover.active = false;
-                pillar.player_crossed = false;
-
-                // hack to avoid dealing with visibility
-                // (have to modify children which is troublesome...)
-                transform.translation.x = window_width;
-            });
-
-        timer.0.reset();
     }
 }
 
