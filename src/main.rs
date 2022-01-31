@@ -340,13 +340,9 @@ fn setup(
 
 fn mover_system(
     globals: Res<Globals>,
-    windows: Res<Windows>,
     time: Res<Time>,
     mut query: Query<(&mut Mover, &mut Transform)>,
 ) {
-    let window = windows.get_primary().unwrap();
-    let window_width = window.width();
-
     // TODO: Is the coupling with game_state reasonable?
     if matches!(globals.game_state, GameState::Playing) {
         query.iter_mut().for_each(|(mut mover, mut transform)| {
@@ -354,10 +350,6 @@ fn mover_system(
                 let increment = mover.acceleration * time.delta().as_secs_f32();
                 mover.velocity += increment;
                 transform.translation += mover.velocity * time.delta().as_secs_f32();
-            } else {
-                // hack to avoid dealing with visibility
-                // (have to modify children which is troublesome...)
-                transform.translation.x = window_width;
             }
         });
     }
@@ -366,7 +358,7 @@ fn mover_system(
 fn mover_window_left_despawn_bound_system(
     globals: Res<Globals>,
     windows: Res<Windows>,
-    mut query: Query<(&MoverWindowLeftDespawnBound, &mut Mover, &Transform)>,
+    mut query: Query<(&MoverWindowLeftDespawnBound, &mut Mover, &mut Transform)>,
 ) {
     let window = windows.get_primary().unwrap();
     let window_width = window.width() as f32;
@@ -374,12 +366,16 @@ fn mover_window_left_despawn_bound_system(
     if matches!(globals.game_state, GameState::Playing) {
         query
             .iter_mut()
-            .for_each(|(mover_window_bound, mut mover, transform)| {
+            .for_each(|(mover_window_bound, mut mover, mut transform)| {
                 if mover.active
                     && transform.translation.x
                         < (-window_width / 2.0) - (mover_window_bound.object_width / 2.0)
                 {
                     mover.active = false;
+
+                    // hack to avoid dealing with visibility
+                    // (have to modify children which is troublesome...)
+                    transform.translation.x = window_width;
                 }
             });
     }
@@ -497,14 +493,18 @@ fn pillar_spawn_system(
 
 fn restart_system(
     mut globals: ResMut<Globals>,
+    windows: Res<Windows>,
     keyboard_input: Res<Input<KeyCode>>,
     mut player_query: Query<(&mut Mover, &mut Transform), With<Player>>,
-    mut pillar_query: Query<(&mut Mover, &mut Pillar), Without<Player>>,
+    mut pillar_query: Query<(&mut Mover, &mut Pillar, &mut Transform), Without<Player>>,
     mut timer: ResMut<PillarSpawnerTimer>,
     mut change_game_state_event: EventWriter<ChangeGameStateEvent>,
 ) {
     if matches!(globals.game_state, GameState::GameOver) && keyboard_input.just_pressed(KeyCode::R)
     {
+        let window = windows.get_primary().unwrap();
+        let window_width = window.width();
+
         change_game_state_event.send(ChangeGameStateEvent(GameState::Playing));
         globals.score = 0;
 
@@ -513,10 +513,16 @@ fn restart_system(
         player_transform.translation = Vec3::ZERO;
         mover.velocity = Vec3::ZERO;
 
-        pillar_query.iter_mut().for_each(|(mut mover, mut pillar)| {
-            mover.active = false;
-            pillar.player_crossed = false;
-        });
+        pillar_query
+            .iter_mut()
+            .for_each(|(mut mover, mut pillar, mut transform)| {
+                mover.active = false;
+                pillar.player_crossed = false;
+
+                // hack to avoid dealing with visibility
+                // (have to modify children which is troublesome...)
+                transform.translation.x = window_width;
+            });
 
         timer.0.reset();
     }
